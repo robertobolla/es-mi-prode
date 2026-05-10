@@ -20,7 +20,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       // Retornamos directamente a la pantalla de login para atrapar el token
-      const redirectUrl = AuthSession.makeRedirectUri({ path: '/(auth)/login' });
+      // Forzamos el uso del esquema nativo para evitar que pida abrir Expo Go en TestFlight
+      const redirectUrl = AuthSession.makeRedirectUri({ 
+        scheme: 'es-mi-prode',
+        path: '/(auth)/login' 
+      });
       console.log('🔗 [OAuth] URL generada por AuthSession:', redirectUrl);
       
       const { data, error } = await supabase.auth.signInWithOAuth({
