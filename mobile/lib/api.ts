@@ -4,8 +4,10 @@ import { supabase } from './supabase';
 // Extraemos la IP local dynamica que está usando Expo Go (e.g., 192.168.x.x)
 const debuggerHost = Constants.expoConfig?.hostUri;
 const localIp = debuggerHost?.split(':')[0] || 'localhost';
-// El backend NestJS corre en el puerto 3001
-export const API_URL = `http://${localIp}:3001`;
+// En desarrollo usamos la IP local, en producción usamos Render
+export const API_URL = __DEV__ 
+  ? `http://${localIp}:3001` 
+  : 'https://es-mi-prode.onrender.com';
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const { data } = await supabase.auth.getSession();
