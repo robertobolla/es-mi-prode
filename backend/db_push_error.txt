@@ -1,0 +1,6 @@
+[2mLoaded Prisma config from prisma.config.ts.
+[22m
+Prisma config detected, skipping environment variable loading.
+[1m[31mError: [39m[22mP1001: Can't reach database server at `db.ulpvmjfdlnlkhsvnnqoe.supabase.co:5432`
+
+Please make sure your database server is running at `db.ulpvmjfdlnlkhsvnnqoe.supabase.co:5432`.

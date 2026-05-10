@@ -1,0 +1,4 @@
+[2mEnvironment variables loaded from .env[22m
+[1m[31mError: [39m[22mP1001: Can't reach database server at `aws-1-eu-west-1.pooler.supabase.co:5432`
+
+Please make sure your database server is running at `aws-1-eu-west-1.pooler.supabase.co:5432`.

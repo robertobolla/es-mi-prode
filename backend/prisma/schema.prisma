@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  supabaseId        String   @unique
+  username          String   @unique
+  email             String   @unique
+  fullName          String?
+  gender            String?
+  avatarUrl         String?
+  country           String?
+  dob               DateTime?
+  bio               String?
+  createdAt         DateTime @default(now())
+  isAdmin           Boolean  @default(false)
+  
+  // Settings
+  notifyMatches     Boolean  @default(true)
+  notifyRanking     Boolean  @default(true)
+  notifyTournaments Boolean  @default(true)
+  pushToken         String?
+  
+  // Stats
+  tournamentsPlayed Int      @default(0)
+  tournamentsWon    Int      @default(0)
+  secondPlaces      Int      @default(0)
+  thirdPlaces       Int      @default(0)
+  historicalPoints  Int      @default(0)
+  exactResults      Int      @default(0)
+  correctResults    Int      @default(0)
+  correctMvp        Int      @default(0)
+  correctTopScorer  Int      @default(0)
+  correctGoalkeeper Int      @default(0)
+
+  tournamentsCreated Tournament[] 
+  memberships        TournamentMember[]
+  predictions        MatchPrediction[]
+  customPredictions  CustomMatchPrediction[]
+  groupPredictions   GroupPrediction[]
+  outrightPredictions OutrightPrediction[]
+  badges             UserBadge[]
+  chatMessages       ChatMessage[]
+}
+
+model Competition {
+  id          String   @id @default(uuid())
+  name        String   // e.g., "Mundial 2026", "Copa America 2024"
+  createdAt   DateTime @default(now())
+  active      Boolean  @default(true)
+  
+  // Official Results
+  officialMvpId         String?
+  officialTopScorerId   String?
+  officialGoalkeeperId  String?
+
+  phases      Phase[]
+  teams       CompetitionTeam[]
+  tournaments Tournament[]
+  globalRankings GlobalRanking[]
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  flagUrl   String?
+  competitions CompetitionTeam[]
+}
+
+model CompetitionTeam {
+  id            String @id @default(uuid())
+  competitionId String
+  teamId        String
+  groupId       String? // If the team belongs to a specific group initially
+  
+  competition Competition @relation(fields: [competitionId], references: [id])
+  team        Team        @relation(fields: [teamId], references: [id])
+  group       Group?      @relation(fields: [groupId], references: [id])
+  homeMatches Match[]     @relation("homeTeam")
+  awayMatches Match[]     @relation("awayTeam")
+}
+
+model Phase {
+  id            String   @id @default(uuid())
+  competitionId String
+  name          String   // e.g., "Group Stage", "Round of 16"
+  order         Int
+  openDate      DateTime
+  closeDate     DateTime // After this date, predictions are locked and visible
+  
+  competition   Competition @relation(fields: [competitionId], references: [id])
+  groups        Group[]
+  matches       Match[]
+}
+
+model Group {
+  id            String   @id @default(uuid())
+  phaseId       String
+  name          String   // e.g., "Group A"
+
+  phase         Phase    @relation(fields: [phaseId], references: [id])
+  teams         CompetitionTeam[]
+  matches       Match[]
+  
+  officialFirstPlaceId  String?
+  officialSecondPlaceId String?
+  
+  groupPredictions GroupPrediction[]
+}
+
+model Match {
+  id            String   @id @default(uuid())
+  phaseId       String
+  groupId       String?
+  homeTeamId    String?
+  awayTeamId    String?
+  matchDate     DateTime
+  status        String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, FINISHED
+  
+  // Official Results
+  homeScore90   Int?
+  awayScore90   Int?
+  homeScore120  Int?
+  awayScore120  Int?
+
+  phase         Phase    @relation(fields: [phaseId], references: [id])
+  group         Group?   @relation(fields: [groupId], references: [id])
+  homeTeam      CompetitionTeam? @relation("homeTeam", fields: [homeTeamId], references: [id])
+  awayTeam      CompetitionTeam? @relation("awayTeam", fields: [awayTeamId], references: [id])
+  predictions   MatchPrediction[]
+}
+
+model Tournament {
+  id              String   @id @default(uuid())
+  competitionId   String?
+  creatorId       String
+  name            String
+  isPublic        Boolean  @default(true)
+  password        String?  // If private
+  maxParticipants Int?     // null for unlimited
+  creatorParticipates Boolean @default(true)
+  includeExtraTime Boolean @default(false)
+  predictGroups    Boolean @default(true)
+  isCustom         Boolean @default(false)
+  
+  // Prediction toggles for custom tournaments
+  predictMvp        Boolean @default(false)
+  predictTopScorer  Boolean @default(false)
+  predictGoalkeeper Boolean @default(false)
+  
+  // Custom tournament award results (set by creator)
+  awardMvp          String?
+  awardTopScorer    String?
+  awardGoalkeeper   String?
+  
+  // Custom Points System JSON
+  pointsSystem    Json     
+  status          String   @default("OPEN") // OPEN, CLOSED, IN_PROGRESS, FINISHED
+  shareCode       String   @unique
+
+  competition     Competition? @relation(fields: [competitionId], references: [id])
+  creator         User        @relation(fields: [creatorId], references: [id])
+  members         TournamentMember[]
+  customTeams     CustomTeam[]
+  customPhases    CustomPhase[]
+  userBadges      UserBadge[]
+  chatMessages    ChatMessage[]
+}
+
+model CustomTeam {
+  id            String   @id @default(uuid())
+  tournamentId  String
+  name          String
+  abbreviation  String?
+  logoUrl       String?
+  color         String?
+  
+  tournament    Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  homeMatches   CustomMatch[] @relation("customHomeTeam")
+  awayMatches   CustomMatch[] @relation("customAwayTeam")
+}
+
+model CustomPhase {
+  id                  String    @id @default(uuid())
+  tournamentId        String
+  name                String
+  type                String    @default("custom") // group | knockout | league | custom
+  order               Int
+  predictionsOpenAt   DateTime?
+  predictionsCloseAt  DateTime?
+  startDate           DateTime?
+  endDate             DateTime?
+  
+  tournament          Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  matches             CustomMatch[]
+}
+
+model CustomMatch {
+  id            String   @id @default(uuid())
+  phaseId       String
+  homeTeamId    String?
+  awayTeamId    String?
+  matchDate     DateTime
+  location      String?
+  status        String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, FINISHED
+  homeScore     Int?
+  awayScore     Int?
+  
+  phase         CustomPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  homeTeam      CustomTeam? @relation("customHomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam      CustomTeam? @relation("customAwayTeam", fields: [awayTeamId], references: [id])
+  predictions   CustomMatchPrediction[]
+}
+
+model TournamentMember {
+  id            String   @id @default(uuid())
+  tournamentId  String
+  userId        String
+  joinedAt      DateTime @default(now())
+  
+  // Current stats in this tournament
+  totalPoints   Int      @default(0)
+  exactResults  Int      @default(0)
+  correctResults Int     @default(0)
+  rank          Int?
+
+  tournament    Tournament @relation(fields: [tournamentId], references: [id])
+  user          User       @relation(fields: [userId], references: [id])
+  
+  @@unique([tournamentId, userId])
+}
+
+model MatchPrediction {
+  id            String   @id @default(uuid())
+  userId        String
+  matchId       String
+  homeScore     Int
+  awayScore     Int
+  points        Int      @default(0)
+
+  user          User     @relation(fields: [userId], references: [id])
+  match         Match    @relation(fields: [matchId], references: [id])
+  
+  @@unique([userId, matchId])
+}
+
+model CustomMatchPrediction {
+  id            String   @id @default(uuid())
+  userId        String
+  customMatchId String
+  homeScore     Int
+  awayScore     Int
+  points        Int      @default(0)
+
+  user          User        @relation(fields: [userId], references: [id])
+  customMatch   CustomMatch @relation(fields: [customMatchId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, customMatchId])
+}
+
+model GroupPrediction {
+  id            String   @id @default(uuid())
+  userId        String
+  groupId       String
+  firstPlaceId  String
+  secondPlaceId String
+
+  user          User     @relation(fields: [userId], references: [id])
+  group         Group    @relation(fields: [groupId], references: [id])
+
+  @@unique([userId, groupId])
+}
+
+model OutrightPrediction {
+  id            String   @id @default(uuid())
+  userId        String
+  competitionId String
+  mvpId         String?
+  topScorerId   String?
+  goalkeeperId  String?
+
+  user          User     @relation(fields: [userId], references: [id])
+  
+  @@unique([userId, competitionId])
+}
+
+model GlobalRanking {
+  id            String   @id @default(uuid())
+  competitionId String
+  userId        String
+  bestTournamentId String
+  points        Int
+  rank          Int
+
+  competition   Competition @relation(fields: [competitionId], references: [id])
+  
+  @@unique([competitionId, userId])
+}
+
+model UserBadge {
+  id            String   @id @default(uuid())
+  userId        String
+  tournamentId  String
+  badgeType     String   // CHAMPION, RUNNER_UP, THIRD_PLACE
+  earnedAt      DateTime @default(now())
+
+  user          User       @relation(fields: [userId], references: [id])
+  tournament    Tournament @relation(fields: [tournamentId], references: [id])
+}
+
+model ChatMessage {
+  id           String     @id @default(uuid())
+  tournamentId String
+  userId       String
+  content      String     @db.Text
+  mediaUrl     String?
+  mediaType    String?    // 'image' | 'video'
+  createdAt    DateTime   @default(now())
+
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
