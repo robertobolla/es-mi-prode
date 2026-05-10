@@ -31,6 +31,7 @@ export class UsersService {
         gender: data.gender,
         country: data.country,
         dob: data.dob,
+        isAdmin: data.email === 'bblasivan@gmail.com' || data.email === 'robertobolla9@gmail.com',
       },
     });
   }
