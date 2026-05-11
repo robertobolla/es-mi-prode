@@ -1,9 +1,16 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScoringService } from '../scoring/scoring.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { generateRoundRobinFixtures } from './league-generator.util';
 
 @Injectable()
 export class CustomTournamentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private scoringService: ScoringService,
+    private notificationsService: NotificationsService,
+  ) {}
 
   // ── TEAMS ──────────────────────────────────────────────
 
@@ -87,7 +94,7 @@ export class CustomTournamentService {
     awayScore: number;
   }) {
     await this.verifyCreator(tournamentId, creatorUserId);
-    return this.prisma.customMatch.update({
+    const match = await this.prisma.customMatch.update({
       where: { id: matchId },
       data: {
         homeScore: data.homeScore,
@@ -96,6 +103,11 @@ export class CustomTournamentService {
       },
       include: { homeTeam: true, awayTeam: true, phase: true },
     });
+
+    // Trigger scoring after result is set
+    await this.scoringService.scoreCustomMatch(matchId, tournamentId);
+
+    return match;
   }
 
   async removeMatch(tournamentId: string, matchId: string, creatorUserId: string) {
@@ -115,6 +127,75 @@ export class CustomTournamentService {
       where: { id: tournamentId },
       data,
     });
+  }
+
+  // ── GENERATE LEAGUE FIXTURES ───────────────────────────
+
+  async generateLeagueFixtures(tournamentId: string, creatorUserId: string, matchDate?: Date) {
+    await this.verifyCreator(tournamentId, creatorUserId);
+
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      include: { customTeams: { orderBy: { name: 'asc' } } },
+    });
+
+    if (!tournament) throw new NotFoundException('Tournament not found');
+    if (tournament.format !== 'liga') {
+      throw new ForbiddenException('Solo se pueden generar fixtures para torneos de liga');
+    }
+    if (tournament.customTeams.length < 2) {
+      throw new ForbiddenException('Se necesitan al menos 2 equipos para generar fixtures');
+    }
+
+    // Delete existing phases and matches
+    await this.prisma.customMatch.deleteMany({
+      where: { phase: { tournamentId } },
+    });
+    await this.prisma.customPhase.deleteMany({
+      where: { tournamentId },
+    });
+
+    // Generate fixtures
+    const teamIds = tournament.customTeams.map((t) => t.id);
+    const fixtures = generateRoundRobinFixtures(teamIds, tournament.roundTrip);
+
+    // Base date for matches (default: today)
+    const baseDate = matchDate ? new Date(matchDate) : new Date();
+
+    // Create phases (one per matchday) and matches
+    for (const matchday of fixtures) {
+      // Each matchday is 7 days apart by default
+      const matchdayDate = new Date(baseDate);
+      matchdayDate.setDate(matchdayDate.getDate() + (matchday.matchdayNumber - 1) * 7);
+
+      // Predictions close 1 hour before the matchday
+      const closeDate = new Date(matchdayDate);
+      closeDate.setHours(closeDate.getHours() - 1);
+
+      const phase = await this.prisma.customPhase.create({
+        data: {
+          tournamentId,
+          name: `Fecha ${matchday.matchdayNumber}`,
+          type: 'matchday',
+          order: matchday.matchdayNumber,
+          predictionsCloseAt: closeDate,
+          startDate: matchdayDate,
+        },
+      });
+
+      for (const match of matchday.matches) {
+        await this.prisma.customMatch.create({
+          data: {
+            phaseId: phase.id,
+            homeTeamId: match.homeTeamId,
+            awayTeamId: match.awayTeamId,
+            matchDate: matchdayDate,
+          },
+        });
+      }
+    }
+
+    return { matchdays: fixtures.length, matchesPerMatchday: fixtures[0]?.matches.length || 0 };
   }
 
   // ── FULL TOURNAMENT DETAIL ─────────────────────────────
@@ -137,6 +218,10 @@ export class CustomTournamentService {
         members: {
           include: { user: { select: { id: true, username: true, avatarUrl: true } } },
           orderBy: { totalPoints: 'desc' },
+        },
+        matchdayWinners: {
+          orderBy: { matchdayNumber: 'desc' },
+          include: { user: { select: { id: true, username: true } } },
         },
         _count: { select: { members: true } },
       },

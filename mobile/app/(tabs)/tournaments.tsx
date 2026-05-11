@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, Modal, TextInput, Alert, Switch, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { api } from '../../lib/api';
+import { useQuery } from '@tanstack/react-query';
 
 const { width } = Dimensions.get('window');
 
 export default function TournamentsScreen() {
-  const [tournaments, setTournaments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [competitions, setCompetitions] = useState<any[]>([]);
 
@@ -15,20 +14,13 @@ export default function TournamentsScreen() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, ACTIVE, FINISHED
 
-  useEffect(() => {
-    fetchTournaments();
-  }, []);
-
-  const fetchTournaments = async () => {
-    try {
+  const { data: tournaments = [], isLoading: loading, refetch: fetchTournaments } = useQuery<any[]>({
+    queryKey: ['my_tournaments'],
+    queryFn: async () => {
       const data = await api.get('/tournaments/my');
-      setTournaments(Array.isArray(data) ? data : []);
-    } catch (e: any) {
-      console.error('Error fetching tournaments:', e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
   const openCreateModal = async () => {
     try {
@@ -180,7 +172,6 @@ export default function TournamentsScreen() {
         competitions={competitions}
         onCreated={() => {
           setShowCreate(false);
-          setLoading(true);
           fetchTournaments();
         }}
       />
@@ -194,8 +185,20 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
   const [password, setPassword] = useState('');
   const [selectedCompId, setSelectedCompId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [format, setFormat] = useState('copa'); // 'copa' or 'liga'
+
+  // Sync format with official competition if selected
+  useEffect(() => {
+    if (selectedCompId) {
+      const comp = competitions.find((c: any) => c.id === selectedCompId);
+      if (comp?.format) {
+        setFormat(comp.format);
+      }
+    }
+  }, [selectedCompId, competitions]);
 
   // New fields
+  const [roundTrip, setRoundTrip] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState('');
   const [creatorParticipates, setCreatorParticipates] = useState(true);
   const [includeExtraTime, setIncludeExtraTime] = useState(false);
@@ -207,6 +210,7 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
   // Points System
   const [ptsExact, setPtsExact] = useState('5');
   const [ptsResult, setPtsResult] = useState('3');
+  const [ptsMatchdayWinner, setPtsMatchdayWinner] = useState('3');
   const [ptsMvp, setPtsMvp] = useState('10');
   const [ptsTopScorer, setPtsTopScorer] = useState('10');
   const [ptsGoalkeeper, setPtsGoalkeeper] = useState('10');
@@ -227,16 +231,19 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
         ...(selectedCompId ? { competitionId: selectedCompId } : {}),
         isPublic,
         password: !isPublic ? password : undefined,
+        format,
+        roundTrip: format === 'liga' ? roundTrip : false,
         maxParticipants: maxParticipants ? parseInt(maxParticipants) : null,
         creatorParticipates,
-        includeExtraTime,
+        includeExtraTime: format === 'liga' ? false : includeExtraTime,
         predictMvp,
         predictTopScorer,
         predictGoalkeeper,
-        predictGroups,
+        predictGroups: format === 'liga' ? false : predictGroups,
         pointsSystem: {
           exactMatch: parseInt(ptsExact) || 5,
           correctResult: parseInt(ptsResult) || 3,
+          matchdayWinner: format === 'liga' ? (parseInt(ptsMatchdayWinner) || 3) : undefined,
           mvp: parseInt(ptsMvp) || 10,
           topScorer: parseInt(ptsTopScorer) || 10,
           goalkeeper: parseInt(ptsGoalkeeper) || 10,
@@ -253,9 +260,10 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
       onCreated();
       // Reset
       setName(''); setIsPublic(true); setPassword(''); setSelectedCompId('');
+      setFormat('copa'); setRoundTrip(false);
       setMaxParticipants(''); setCreatorParticipates(true); setIncludeExtraTime(false);
       setPredictMvp(false); setPredictTopScorer(false); setPredictGoalkeeper(false); setPredictGroups(true);
-      setPtsExact('5'); setPtsResult('3'); setPtsMvp('10'); setPtsTopScorer('10'); setPtsGoalkeeper('10');
+      setPtsExact('5'); setPtsResult('3'); setPtsMatchdayWinner('3'); setPtsMvp('10'); setPtsTopScorer('10'); setPtsGoalkeeper('10');
       setPtsGroupExact('10'); setPtsGroupBoth('5'); setPtsGroupOne('2');
     } catch (e: any) {
       Alert.alert('Error', e.message || 'No se pudo crear el torneo');
@@ -292,6 +300,7 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
               maxLength={40}
             />
 
+
             <Text style={modalStyles.label}>Competición</Text>
             <View style={modalStyles.compList}>
               {competitions.map((c: any) => (
@@ -314,6 +323,31 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {!selectedCompId && (
+              <>
+                <Text style={modalStyles.label}>Formato del Torneo</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  <TouchableOpacity
+                    style={[modalStyles.formatBtn, format === 'copa' && modalStyles.formatBtnActive]}
+                    onPress={() => setFormat('copa')}
+                  >
+                    <Text style={[modalStyles.formatBtnText, format === 'copa' && modalStyles.formatBtnTextActive]}>🏆 Copa</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[modalStyles.formatBtn, format === 'liga' && modalStyles.formatBtnActive]}
+                    onPress={() => setFormat('liga')}
+                  >
+                    <Text style={[modalStyles.formatBtnText, format === 'liga' && modalStyles.formatBtnTextActive]}>📅 Liga</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6, marginBottom: 12 }}>
+                  {format === 'copa' 
+                    ? 'Fase de grupos y eliminación directa.' 
+                    : 'Todos contra todos por puntos. Se premiará al ganador de cada fecha.'}
+                </Text>
+              </>
+            )}
 
             <View style={modalStyles.switchRow}>
               <Text style={modalStyles.switchLabel}>Torneo Público</Text>
@@ -349,10 +383,19 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
             {/* ── REGLAS ── */}
             <Text style={modalStyles.sectionHeader}>⚙️ REGLAS</Text>
 
-            <View style={modalStyles.switchRow}>
-              <Text style={modalStyles.switchLabel}>Contar tiempo extra</Text>
-              <Switch value={includeExtraTime} onValueChange={setIncludeExtraTime} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
-            </View>
+            {format === 'liga' && (
+              <View style={modalStyles.switchRow}>
+                <Text style={modalStyles.switchLabel}>Torneo Ida y Vuelta</Text>
+                <Switch value={roundTrip} onValueChange={setRoundTrip} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
+              </View>
+            )}
+
+            {format === 'copa' && (
+              <View style={modalStyles.switchRow}>
+                <Text style={modalStyles.switchLabel}>Contar tiempo extra</Text>
+                <Switch value={includeExtraTime} onValueChange={setIncludeExtraTime} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
+              </View>
+            )}
 
             <View style={modalStyles.switchRow}>
               <Text style={modalStyles.switchLabel}>Predecir MVP</Text>
@@ -369,10 +412,12 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
               <Switch value={predictGoalkeeper} onValueChange={setPredictGoalkeeper} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
             </View>
 
-            <View style={modalStyles.switchRow}>
-              <Text style={modalStyles.switchLabel}>Predecir Clasificados (1º y 2º)</Text>
-              <Switch value={predictGroups} onValueChange={setPredictGroups} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
-            </View>
+            {format === 'copa' && (
+              <View style={modalStyles.switchRow}>
+                <Text style={modalStyles.switchLabel}>Predecir Clasificados (1º y 2º)</Text>
+                <Switch value={predictGroups} onValueChange={setPredictGroups} trackColor={{ false: '#334155', true: '#EAB308' }} thumbColor="#FFF" />
+              </View>
+            )}
 
             {/* ── SISTEMA DE PUNTOS ── */}
             <Text style={modalStyles.sectionHeader}>🏆 SISTEMA DE PUNTOS</Text>
@@ -385,6 +430,12 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
               <Text style={modalStyles.pointsLabel}>Solo resultado (1X2)</Text>
               <TextInput style={modalStyles.pointsInput} value={ptsResult} onChangeText={setPtsResult} keyboardType="numeric" />
             </View>
+            {format === 'liga' && (
+              <View style={modalStyles.pointsRow}>
+                <Text style={modalStyles.pointsLabel}>Ganador de la fecha (Bonus)</Text>
+                <TextInput style={modalStyles.pointsInput} value={ptsMatchdayWinner} onChangeText={setPtsMatchdayWinner} keyboardType="numeric" />
+              </View>
+            )}
             {predictMvp && (
               <View style={modalStyles.pointsRow}>
                 <Text style={modalStyles.pointsLabel}>MVP correcto</Text>
@@ -404,7 +455,7 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
               </View>
             )}
 
-            {predictGroups && (
+            {format === 'copa' && predictGroups && (
               <>
                 <View style={modalStyles.pointsRow}>
                   <Text style={modalStyles.pointsLabel}>1º y 2º en orden exacto</Text>
@@ -687,6 +738,26 @@ const modalStyles = StyleSheet.create({
     fontWeight: 'bold',
   },
   compTextSelected: {
+    color: '#EAB308',
+  },
+  formatBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+  },
+  formatBtnActive: {
+    backgroundColor: 'rgba(234, 179, 8, 0.15)',
+    borderColor: '#EAB308',
+  },
+  formatBtnText: {
+    color: '#94A3B8',
+    fontWeight: 'bold',
+  },
+  formatBtnTextActive: {
     color: '#EAB308',
   },
   switchRow: {

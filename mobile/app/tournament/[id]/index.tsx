@@ -59,9 +59,15 @@ export default function TournamentDetailScreen() {
   const members = tournament.members || [];
   const points = tournament.pointsSystem || {};
 
+  // Get current matchday winners (for the latest resolved matchday)
+  const latestMatchday = tournament.matchdayWinners?.[0]?.matchdayNumber;
+  const currentWinners = tournament.matchdayWinners?.filter((w: any) => w.matchdayNumber === latestMatchday) || [];
+  const currentWinnerIds = currentWinners.map((w: any) => w.userId);
+
   const ruleItems = [
-    { id: '1', label: 'Resultado Exacto', value: points.exact, icon: 'star' },
-    { id: '2', label: 'Resultado (1X2)', value: points.result, icon: 'checkmark-done' },
+    { id: '1', label: 'Resultado Exacto', value: points.exactMatch || points.exact, icon: 'star' },
+    { id: '2', label: 'Resultado (1X2)', value: points.correctResult || points.result, icon: 'checkmark-done' },
+    { id: '9', label: 'Ganador de Fecha (Liga)', value: points.matchdayWinner, icon: 'medal', condition: tournament.format === 'liga' },
     { id: '3', label: 'Goleador Correcto', value: points.topScorer, icon: 'football', condition: tournament.predictTopScorer },
     { id: '4', label: 'MVP Correcto', value: points.mvp, icon: 'trophy', condition: tournament.predictMvp },
     { id: '5', label: 'Arquero Correcto', value: points.goalkeeper, icon: 'hand-right', condition: tournament.predictGoalkeeper },
@@ -141,26 +147,35 @@ export default function TournamentDetailScreen() {
           {members.length === 0 ? (
             <Text style={styles.emptyText}>No hay participantes aún</Text>
           ) : (
-            members.map((m: any, index: number) => (
-              <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' }}>
-                <View style={{ width: 36, alignItems: 'center' }}>
-                  <Text style={[{ fontSize: 14, fontWeight: '900', color: '#94A3B8' }, index < 3 && { color: '#EAB308', fontSize: 18 }]}>
-                    {index + 1}
-                  </Text>
+            members.map((m: any, index: number) => {
+              const isCurrentWinner = currentWinnerIds.includes(m.userId);
+              return (
+                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' }}>
+                  <View style={{ width: 36, alignItems: 'center' }}>
+                    <Text style={[{ fontSize: 14, fontWeight: '900', color: '#94A3B8' }, index < 3 && { color: '#EAB308', fontSize: 18 }]}>
+                      {index + 1}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={[{ fontSize: 14, fontWeight: '600', color: '#F8FAFC' }, index === 0 && { color: '#EAB308' }]} numberOfLines={1}>
+                      {m.user?.username || 'Usuario'}
+                    </Text>
+                    {isCurrentWinner && (
+                      <Text style={{ marginLeft: 6, fontSize: 14 }}>⭐</Text>
+                    )}
+                    {m.matchdayWins > 0 && !isCurrentWinner && (
+                      <Text style={{ marginLeft: 6, fontSize: 10, color: '#64748B' }}>{m.matchdayWins}⭐</Text>
+                    )}
+                  </View>
+                  <View style={{ width: 50, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: '#EAB308' }}>{m.totalPoints}</Text>
+                  </View>
+                  <View style={{ width: 56, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 12, color: '#94A3B8' }}>{m.exactResults} / {m.correctResults}</Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1, paddingHorizontal: 8 }}>
-                  <Text style={[{ fontSize: 14, fontWeight: '600', color: '#F8FAFC' }, index === 0 && { color: '#EAB308' }]} numberOfLines={1}>
-                    {m.user?.username || 'Usuario'}
-                  </Text>
-                </View>
-                <View style={{ width: 50, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 14, fontWeight: '900', color: '#EAB308' }}>{m.totalPoints}</Text>
-                </View>
-                <View style={{ width: 56, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, color: '#94A3B8' }}>{m.exactResults} / {m.correctResults}</Text>
-                </View>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
 
@@ -182,6 +197,7 @@ export default function TournamentDetailScreen() {
               {[
                 { label: 'Resultado Exacto', value: points.exactMatch || points.exact, icon: 'star' },
                 { label: 'Resultado (1X2)', value: points.correctResult || points.result, icon: 'checkmark-done' },
+                ...(tournament.format === 'liga' ? [{ label: 'Ganador de Fecha', value: points.matchdayWinner, icon: 'medal' }] : []),
                 { label: 'Goleador', value: points.topScorer, icon: 'football' },
                 { label: 'MVP', value: points.mvp, icon: 'trophy' },
                 { label: 'Valla Invicta', value: points.goalkeeper, icon: 'shield-checkmark' },

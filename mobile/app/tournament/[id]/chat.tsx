@@ -51,14 +51,20 @@ export default function TournamentChatScreen() {
     };
   }, [socket]);
 
-  const setupSocket = (userId: string) => {
+  const setupSocket = async (userId: string) => {
+    // Retrieve active Supabase token
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+
     // Determine the base URL for WebSockets (removing /api if present)
     const baseUrl = API_URL.replace(/\/api$/, '');
-    const newSocket = io(baseUrl);
+    const newSocket = io(baseUrl, {
+      auth: { token },
+    });
 
     newSocket.on('connect', () => {
-      console.log('Socket connected', newSocket.id);
-      newSocket.emit('joinTournamentChat', { tournamentId: id, userId: user?.id });
+      console.log('Socket connected securely', newSocket.id);
+      newSocket.emit('joinTournamentChat', { tournamentId: id, userId });
     });
 
     newSocket.on('newMessage', (msg: any) => {

@@ -1,8 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../lib/supabase';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform, Alert } from 'react-native';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+const queryClient = new QueryClient();
 
 export default function RootLayout() {
   const [session, setSession] = useState<any>(null);
@@ -76,6 +91,19 @@ export default function RootLayout() {
         console.log('📡 [RootLayout] Intentando conectar a:', API_URL);
         await api.get('/users/me');
         
+        // Register for push notifications if we have a valid profile
+        if (Device.isDevice) {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            try {
+              await api.patch('/users/me', { pushToken: token });
+              console.log('📱 [Push] Token guardado en DB');
+            } catch (err) {
+              console.log('❌ [Push] Error guardando token', err);
+            }
+          }
+        }
+        
         // Si no dio error 404, el perfil existe.
         if (inAuthGroup) {
           router.replace('/(tabs)');
@@ -102,6 +130,40 @@ export default function RootLayout() {
     routeToAppropriateScreen();
   }, [session, initialized, segments, rootNavigationState?.key]);
 
+  async function registerForPushNotificationsAsync() {
+    let token;
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#EAB308',
+      });
+    }
+
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        return undefined;
+      }
+      // Configure Expo push token
+      try {
+        const projectId = 'b433ea18-fbd3-4f93-8687-f823f03b55c2'; // Replace with constants.expoConfig.extra.eas.projectId if set
+        token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      } catch (e) {
+        console.log('Error getting push token:', e);
+      }
+    }
+
+    return token;
+  }
+
   if (!initialized) {
     return (
       <View style={{ flex: 1, backgroundColor: '#020617', justifyContent: 'center', alignItems: 'center' }}>
@@ -112,7 +174,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -120,6 +182,6 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style="light" />
-    </>
+    </QueryClientProvider>
   );
 }

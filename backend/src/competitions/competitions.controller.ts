@@ -55,6 +55,11 @@ export class CompetitionsController {
 
   // ── PHASES ──────────────────────────
 
+  @Post(':id/generate-matchdays')
+  generateMatchdays(@Param('id') id: string, @Body() body: { count: number }) {
+    return this.competitionsService.generateMatchdays(id, body.count);
+  }
+
   @Post(':id/phases')
   addPhase(@Param('id') id: string, @Body() body: { name: string; order: number; openDate: string; closeDate: string }) {
     return this.competitionsService.addPhase(id, body);

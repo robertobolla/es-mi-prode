@@ -181,6 +181,23 @@ export class CustomTournamentController {
     return this.customService.removeMatch(tournamentId, matchId, userId);
   }
 
+  // ── GENERATE LEAGUE FIXTURES ────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Post('generate-fixtures')
+  async generateFixtures(
+    @Param('tournamentId') tournamentId: string,
+    @Request() req,
+    @Body() body: { matchDate?: string },
+  ) {
+    const userId = await this.getUserId(req);
+    return this.customService.generateLeagueFixtures(
+      tournamentId,
+      userId,
+      body.matchDate ? new Date(body.matchDate) : undefined,
+    );
+  }
+
   // ── AWARDS ─────────────────────────────────────────────
 
   @UseGuards(JwtAuthGuard)

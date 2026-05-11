@@ -47,11 +47,13 @@ model User {
   outrightPredictions OutrightPrediction[]
   badges             UserBadge[]
   chatMessages       ChatMessage[]
+  matchdayWins       MatchdayWinner[]
 }
 
 model Competition {
   id          String   @id @default(uuid())
   name        String   // e.g., "Mundial 2026", "Copa America 2024"
+  format      String   @default("copa") // "copa" or "liga"
   createdAt   DateTime @default(now())
   active      Boolean  @default(true)
   
@@ -97,6 +99,7 @@ model Phase {
   competition   Competition @relation(fields: [competitionId], references: [id])
   groups        Group[]
   matches       Match[]
+  matchdayWinners MatchdayWinner[]
 }
 
 model Group {
@@ -149,6 +152,10 @@ model Tournament {
   predictGroups    Boolean @default(true)
   isCustom         Boolean @default(false)
   
+  // Liga vs Copa format
+  format            String   @default("copa")   // 'liga' | 'copa'
+  roundTrip         Boolean  @default(false)     // ida y vuelta (solo liga)
+  
   // Prediction toggles for custom tournaments
   predictMvp        Boolean @default(false)
   predictTopScorer  Boolean @default(false)
@@ -171,6 +178,7 @@ model Tournament {
   customPhases    CustomPhase[]
   userBadges      UserBadge[]
   chatMessages    ChatMessage[]
+  matchdayWinners MatchdayWinner[]
 }
 
 model CustomTeam {
@@ -199,6 +207,7 @@ model CustomPhase {
   
   tournament          Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   matches             CustomMatch[]
+  matchdayWinners     MatchdayWinner[]
 }
 
 model CustomMatch {
@@ -225,10 +234,11 @@ model TournamentMember {
   joinedAt      DateTime @default(now())
   
   // Current stats in this tournament
-  totalPoints   Int      @default(0)
-  exactResults  Int      @default(0)
-  correctResults Int     @default(0)
-  rank          Int?
+  totalPoints    Int      @default(0)
+  exactResults   Int      @default(0)
+  correctResults Int      @default(0)
+  matchdayWins   Int      @default(0)
+  rank           Int?
 
   tournament    Tournament @relation(fields: [tournamentId], references: [id])
   user          User       @relation(fields: [userId], references: [id])
@@ -325,4 +335,22 @@ model ChatMessage {
 
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MatchdayWinner {
+  id              String   @id @default(uuid())
+  tournamentId    String
+  customPhaseId   String?  // fecha in custom tournaments
+  phaseId         String?  // fecha in official tournaments
+  userId          String
+  matchdayNumber  Int      // matchday number (1, 2, 3...)
+  bonusPoints     Int      // bonus points awarded
+  createdAt       DateTime @default(now())
+
+  tournament      Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id])
+  customPhase     CustomPhase? @relation(fields: [customPhaseId], references: [id])
+  phase           Phase?       @relation(fields: [phaseId], references: [id])
+
+  @@unique([tournamentId, matchdayNumber, userId])
 }

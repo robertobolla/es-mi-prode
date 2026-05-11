@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-const API = 'http://localhost:3001';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function CompetitionDetailPage() {
   const params = useParams();
@@ -23,6 +23,8 @@ export default function CompetitionDetailPage() {
   const [newPhaseClose, setNewPhaseClose] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedPhaseForGroup, setSelectedPhaseForGroup] = useState('');
+  const [matchdaysCount, setMatchdaysCount] = useState('27');
+  const [generating, setGenerating] = useState(false);
   const [matchForm, setMatchForm] = useState({ phaseId: '', groupId: '', homeTeamId: '', awayTeamId: '', matchDate: '' });
   const [resultForm, setResultForm] = useState<any>({});
 
@@ -101,6 +103,19 @@ export default function CompetitionDetailPage() {
     fetchAll();
   };
 
+  const generateMatchdays = async () => {
+    const count = parseInt(matchdaysCount);
+    if (!count || count < 1) return;
+    setGenerating(true);
+    await fetch(`${API}/competitions/${id}/generate-matchdays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count }),
+    });
+    setGenerating(false);
+    fetchAll();
+  };
+
   // ── GROUPS ──────────────────────────────────────
   const addGroup = async () => {
     if (!newGroupName.trim() || !selectedPhaseForGroup) return;
@@ -163,7 +178,7 @@ export default function CompetitionDetailPage() {
 
   const tabs = [
     { key: 'equipos', label: '⚽ Equipos', count: compTeams.length },
-    { key: 'fases', label: '📅 Fases y Grupos', count: phases.length },
+    { key: 'fases', label: comp?.format === 'liga' ? '📅 Fechas' : '📅 Fases y Grupos', count: phases.length },
     { key: 'partidos', label: '🏟️ Partidos', count: allMatches.length },
     { key: 'premios', label: '🏆 Premios', count: 0 },
   ];
@@ -264,11 +279,26 @@ export default function CompetitionDetailPage() {
               <input className="border border-slate-300 rounded-lg px-4 py-2 outline-none" type="datetime-local" value={newPhaseOpen} onChange={e => setNewPhaseOpen(e.target.value)} title="Apertura predicciones" />
               <input className="border border-slate-300 rounded-lg px-4 py-2 outline-none" type="datetime-local" value={newPhaseClose} onChange={e => setNewPhaseClose(e.target.value)} title="Cierre predicciones" />
             </div>
-            <button onClick={addPhase} className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">Crear Fase</button>
+            <button onClick={addPhase} className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">Crear Fase Manual</button>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-            <h3 className="font-bold mb-4">Nuevo Grupo</h3>
+          {comp?.format === 'liga' && (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+              <h3 className="font-bold mb-4 text-blue-700">⚡ Generar Fechas Rápidas</h3>
+              <p className="text-sm text-slate-500 mb-3">Creá automáticamente múltiples fechas vacías de un solo click.</p>
+              <div className="flex gap-3 items-center">
+                <input className="border border-slate-300 rounded-lg px-4 py-2 outline-none w-24 text-center" type="number" min="1" value={matchdaysCount} onChange={e => setMatchdaysCount(e.target.value)} />
+                <span className="text-slate-500 font-bold">Fechas</span>
+                <button onClick={generateMatchdays} disabled={generating} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50">
+                  {generating ? 'Generando...' : 'Generar Fechas'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {comp?.format !== 'liga' && (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+              <h3 className="font-bold mb-4">Nuevo Grupo</h3>
             <div className="flex gap-3">
               <select className="border border-slate-300 rounded-lg px-4 py-2" value={selectedPhaseForGroup} onChange={e => setSelectedPhaseForGroup(e.target.value)}>
                 <option value="">Seleccionar fase...</option>
@@ -278,6 +308,7 @@ export default function CompetitionDetailPage() {
               <button onClick={addGroup} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">Crear Grupo</button>
             </div>
           </div>
+          )}
 
           {phases.map((p: any) => (
             <div key={p.id} className="bg-white rounded-xl border border-slate-200 p-6 mb-4">
@@ -352,13 +383,15 @@ export default function CompetitionDetailPage() {
             <h3 className="font-bold mb-4">Nuevo Partido</h3>
             <div className="grid grid-cols-2 gap-3">
               <select className="border border-slate-300 rounded-lg px-4 py-2" value={matchForm.phaseId} onChange={e => setMatchForm({ ...matchForm, phaseId: e.target.value })}>
-                <option value="">Fase...</option>
+                <option value="">{comp?.format === 'liga' ? 'Fecha...' : 'Fase...'}</option>
                 {phases.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select className="border border-slate-300 rounded-lg px-4 py-2" value={matchForm.groupId} onChange={e => setMatchForm({ ...matchForm, groupId: e.target.value, homeTeamId: '', awayTeamId: '' })}>
-                <option value="">Grupo (opcional)...</option>
-                {allGroups.map((g: any) => <option key={g.id} value={g.id}>{g.phaseName} — {g.name}</option>)}
-              </select>
+              {comp?.format !== 'liga' && (
+                <select className="border border-slate-300 rounded-lg px-4 py-2" value={matchForm.groupId} onChange={e => setMatchForm({ ...matchForm, groupId: e.target.value, homeTeamId: '', awayTeamId: '' })}>
+                  <option value="">Grupo (opcional)...</option>
+                  {allGroups.map((g: any) => <option key={g.id} value={g.id}>{g.phaseName} — {g.name}</option>)}
+                </select>
+              )}
               {(() => {
                 const teamsForSelect = matchForm.groupId
                   ? compTeams.filter((ct: any) => ct.groupId === matchForm.groupId)

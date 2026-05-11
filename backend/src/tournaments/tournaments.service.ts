@@ -13,11 +13,16 @@ export class TournamentsService {
       const pointsSystem = createTournamentDto.pointsSystem || {
         exactMatch: 5,
         correctResult: 3,
+        matchdayWinner: createTournamentDto.format === 'liga' ? 3 : undefined,
       };
 
       const tournament = await tx.tournament.create({
         data: {
           ...createTournamentDto,
+          format: createTournamentDto.format || 'copa',
+          roundTrip: createTournamentDto.roundTrip || false,
+          predictGroups: createTournamentDto.format === 'liga' ? false : createTournamentDto.predictGroups ?? true,
+          includeExtraTime: createTournamentDto.format === 'liga' ? false : createTournamentDto.includeExtraTime ?? false,
           creatorId: userId,
           shareCode,
           pointsSystem,
@@ -143,6 +148,10 @@ export class TournamentsService {
         members: {
           include: { user: true },
           orderBy: { totalPoints: 'desc' },
+        },
+        matchdayWinners: {
+          orderBy: { matchdayNumber: 'desc' },
+          include: { user: { select: { id: true, username: true } } },
         },
       },
     });

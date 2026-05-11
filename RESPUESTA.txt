@@ -1,0 +1,78 @@
+Hola Roberto, como parece que no podés ver mis mensajes en el chat por un bug de la interfaz, te dejo la respuesta por acá.
+
+### ¡MEJORAS DE PRODUCCIÓN COMPLETADAS CON ÉXITO! 🎉
+
+He completado todas las fases que aprobaste. El código de todo tu proyecto está ahora a un nivel de robustez excelente.
+
+Aquí está el resumen de lo que apliqué:
+
+1. **Variables de Entorno en Panel Web:**
+   - Creé el archivo `admin/.env.local` con `NEXT_PUBLIC_API_URL=http://localhost:3001` para desarrollo local.
+   - Actualicé el panel web para leer automáticamente de esa variable, facilitando su despliegue en producción sin cambiar código.
+
+2. **Seguridad Crítica en el Chat (WebSockets):**
+   - Instalé `jsonwebtoken` en tu backend.
+   - El `ChatGateway` ahora lee de forma segura el Token de Supabase provisto por la app de celular, valida la firma criptográfica con tu `SUPABASE_JWT_SECRET` y extrae tu ID interno de base de datos.
+   - Los mensajes de chat ahora usan este ID verificado. Es imposible falsificar la identidad de un remitente.
+   - Modifiqué la app móvil (`chat.tsx`) para enviar este token JWT seguro en el inicio de la conexión.
+
+3. **Validación Automática en API (Class-Validator):**
+   - Instalé `class-validator` y `class-transformer` en el backend.
+   - Activé globalmente el validador en `main.ts` de NestJS.
+   - Actualicé el DTO de creación de competencias (`CreateCompetitionDto`) con validadores estrictos para evitar errores extraños de base de datos.
+
+4. **Integración de React Query en Celular (Caché Ultra Fluida):**
+   - Instalé `@tanstack/react-query` en tu proyecto `mobile`.
+   - Configuré el `QueryClientProvider` en el layout raíz (`_layout.tsx`).
+   - Refactoricé por completo el fetch de tus torneos (`(tabs)/tournaments.tsx`) utilizando el hook `useQuery`. 
+   - **Resultado:** Ahora la app móvil cuenta con **Caché Automática**. Si entrás y salís de la pestaña "Mis Torneos", los torneos se visualizan de manera instantánea en pantalla (sin pantallas vacías ni spinners), y se actualizan silenciosamente en background si hubo algún cambio. ¡Una fluidez total de UX!
+
+---
+
+### **¿Qué hacer ahora?**
+Como el backend de NestJS sufrió cambios grandes (se instalaron paquetes de validación, JWT y se modificó `main.ts`), es recomendable que lo reinicies:
+1. Dale `Ctrl + C` en la consola donde corre tu backend para frenarlo.
+2. Volvé a iniciarlo con `npm run start:dev` para levantar las nuevas optimizaciones.
+
+¡Avisame por acá cómo sentís la app con estas refactorizaciones! 🚀
+
+---
+
+### 📊 ¡ESTADÍSTICAS DEL PANEL GENERAL SOLUCIONADAS!
+
+Me di cuenta de por qué no veías estadísticas en el panel general: **los creadores originales del proyecto habían dejado los controladores de estadísticas y administración en el backend completamente vacíos (scaffolds sin lógica) y el dashboard de Next.js tenía los guiones "—" y textos fijos hardcodeados (era una maqueta estática).**
+
+¡Acabo de implementar toda la lógica e integración de punta a punta!
+
+#### Lo que hice:
+1. **En el Backend (NestJS / Prisma):**
+   - Habilité el módulo `StatsModule` y conecté el `StatsService` con la base de datos de Prisma.
+   - Creé el endpoint `/stats/summary` que calcula en tiempo real:
+     - **Competencias Activas** (contando las competencias en base de datos que tienen `active: true`).
+     - **Usuarios Totales** (haciendo un conteo total de la tabla `User`).
+     - **Partidos Pendientes** (contando partidos con estado `SCHEDULED`).
+     - **Actividad Reciente:** Desarrollé un algoritmo elegante que consulta los últimos 5 usuarios registrados (`createdAt`) y las últimas 5 uniones a torneos (`joinedAt`), los une en un log cronológico ordenado de más reciente a más viejo y devuelve las actividades más frescas.
+2. **En el Panel de Administrador (Next.js):**
+   - Modifiqué `admin/src/app/page.tsx` para eliminar la maqueta estática.
+   - Añadí una llamada de carga dinámica (`fetch`) que consulta al backend, maneja estados de error y añade un cargador animado (spinner giratorio) ultra premium.
+   - Ahora el gráfico muestra las cifras reales de tu base de datos y un registro vivo con puntitos de color indicando la actividad reciente (por ejemplo: *"El usuario @username se unió al torneo..."* con su hora exacta).
+
+*Nota: Recordá que para ver el impacto debés reiniciar el backend (`Ctrl + C` y `npm run start:dev`) para que cargue la nueva lógica del StatsService.*
+
+---
+
+### RESPECTO AL PROBLEMA DE CONEXIÓN A EXPO (de tu mensaje anterior):
+
+1. Están en distinta red Wi-Fi: Asegurate de que tu celular y tu compu estén exactamente en la misma red Wi-Fi. Si el celular está con datos móviles (4G/5G), no se va a poder conectar.
+
+2. El Firewall de Windows está bloqueando la conexión: Si tu red Wi-Fi en Windows está configurada como "Pública" en vez de "Privada", el Firewall bloquea el puerto de Expo. Podés ir a la configuración de red de Windows y cambiarla a Red Privada, o desactivar el Firewall temporalmente para probar.
+
+3. La solución rápida (Tunneling): Si no querés renegar con la red, podés iniciar Expo usando un "túnel", que hace que pase por internet sin importar en qué red estés. En tu consola de "mobile", frená el comando anterior con Ctrl+C y escribí esto:
+   
+   npx expo start --tunnel
+
+   (Nota: la primera vez que lo uses te puede pedir que instales @expo/ngrok, decile que sí).
+
+IMPORTANTE SOBRE TU BACKEND: Si el problema era que la app de Expo SÍ abrió pero se quedó trabada intentando conectar a tu backend de NestJS, entonces el problema es estrictamente el Firewall de Windows que no deja entrar peticiones externas. Vas a tener que ir a "Windows Defender Firewall" -> "Permitir una aplicación a través de Firewall", y asegurarte de que "Node.js" esté permitido en redes públicas y privadas.
+
+Avisame si leyéndolo acá pudiste solucionarlo. Si querés hablarme, respondeme por el chat normalmente.

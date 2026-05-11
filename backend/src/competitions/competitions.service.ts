@@ -60,6 +60,31 @@ export class CompetitionsService {
 
   // ── PHASE MANAGEMENT ──────────────────────────
 
+  async generateMatchdays(competitionId: string, count: number) {
+    const phases: any[] = [];
+    const now = new Date();
+    
+    for (let i = 1; i <= count; i++) {
+      // Create some default spacing (e.g. 7 days apart)
+      const openDate = new Date(now);
+      openDate.setDate(now.getDate() + (i - 1) * 7);
+      const closeDate = new Date(openDate);
+      closeDate.setDate(openDate.getDate() + 6);
+
+      const phase = await this.prisma.phase.create({
+        data: {
+          competitionId,
+          name: `Fecha ${i}`,
+          order: i,
+          openDate,
+          closeDate,
+        },
+      });
+      phases.push(phase);
+    }
+    return phases;
+  }
+
   addPhase(competitionId: string, data: { name: string; order: number; openDate: string; closeDate: string }) {
     return this.prisma.phase.create({
       data: {

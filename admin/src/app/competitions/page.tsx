@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 interface Competition {
   id: string;
   name: string;
+  format: string;
   active: boolean;
   createdAt: string;
   _count?: { tournaments: number; phases: number; teams: number };
@@ -19,6 +20,7 @@ export default function CompetitionsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newFormat, setNewFormat] = useState('copa');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -44,10 +46,11 @@ export default function CompetitionsPage() {
       const res = await fetch(`${API_URL}/competitions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim() }),
+        body: JSON.stringify({ name: newName.trim(), format: newFormat }),
       });
       if (!res.ok) throw new Error('Failed');
       setNewName('');
+      setNewFormat('copa');
       setShowCreate(false);
       fetchCompetitions();
     } catch (e) {
@@ -106,8 +109,20 @@ export default function CompetitionsPage() {
               value={newName}
               onChange={e => setNewName(e.target.value)}
               autoFocus
-              onKeyDown={e => e.key === 'Enter' && handleCreate()}
             />
+            <div className="mb-6">
+              <label className="block text-sm font-bold text-slate-500 mb-2">Formato de la Competencia</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="format" value="copa" checked={newFormat === 'copa'} onChange={() => setNewFormat('copa')} />
+                  <span>🏆 Copa (con fases y grupos)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="format" value="liga" checked={newFormat === 'liga'} onChange={() => setNewFormat('liga')} />
+                  <span>📅 Liga (todos contra todos)</span>
+                </label>
+              </div>
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => { setShowCreate(false); setNewName(''); }}
@@ -147,7 +162,12 @@ export default function CompetitionsPage() {
               <div className="flex items-center gap-4">
                 <div className={`w-3 h-3 rounded-full ${comp.active ? 'bg-green-500' : 'bg-slate-300'}`} />
                 <div>
-                  <h3 className="text-lg font-bold">{comp.name}</h3>
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    {comp.name} 
+                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
+                      {comp.format === 'liga' ? '📅 LIGA' : '🏆 COPA'}
+                    </span>
+                  </h3>
                   <p className="text-sm text-slate-400">
                     Creada: {new Date(comp.createdAt).toLocaleDateString('es-AR')}
                     {comp.active ? ' • Activa' : ' • Inactiva'}
