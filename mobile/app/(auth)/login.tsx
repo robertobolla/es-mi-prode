@@ -19,11 +19,11 @@ export default function LoginScreen() {
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      // Retornamos directamente a la pantalla de login para atrapar el token
       // Forzamos el uso del esquema nativo para evitar que pida abrir Expo Go en TestFlight
       const redirectUrl = AuthSession.makeRedirectUri({ 
         scheme: 'es-mi-prode',
-        path: '/(auth)/login' 
+        path: 'login',
+        preferRelevantScheme: true
       });
       console.log('🔗 [OAuth] URL generada por AuthSession:', redirectUrl);
       
