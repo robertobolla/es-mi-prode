@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 // instead of the SDK to keep dependencies minimal
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
-interface PushMessage {
+export interface PushMessage {
   to: string;
   title: string;
   body: string;
@@ -91,7 +91,7 @@ export class NotificationsService {
    * Send push notifications via Expo Push API.
    * Handles batching (Expo allows up to 100 per request).
    */
-  private async sendExpoPush(messages: PushMessage[]) {
+  async sendExpoPush(messages: PushMessage[]) {
     const batchSize = 100;
     for (let i = 0; i < messages.length; i += batchSize) {
       const batch = messages.slice(i, i + batchSize);

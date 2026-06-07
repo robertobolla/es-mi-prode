@@ -1,6 +1,40 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, BadRequestException } from '@nestjs/common';
 import { PredictionsService } from './predictions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+interface AuthenticatedRequest {
+  user: {
+    id: string;
+    userId: string;
+    email: string;
+    isAdmin: boolean;
+  };
+}
+
+interface MatchPredictionBody {
+  matchId: string;
+  homeScore: number;
+  awayScore: number;
+}
+
+interface CustomMatchPredictionBody {
+  customMatchId: string;
+  homeScore: number;
+  awayScore: number;
+}
+
+interface GroupPredictionBody {
+  groupId: string;
+  firstPlaceId: string;
+  secondPlaceId: string;
+}
+
+interface SaveOutrightPredictionBody {
+  competitionId: string;
+  mvpId?: string | null;
+  topScorerId?: string | null;
+  goalkeeperId?: string | null;
+}
 
 @Controller('predictions')
 @UseGuards(JwtAuthGuard)
@@ -8,25 +42,74 @@ export class PredictionsController {
   constructor(private readonly predictionsService: PredictionsService) {}
 
   @Get('tournament/:id')
-  async getTournamentMatches(@Param('id') id: string, @Req() req: any) {
-    return this.predictionsService.getTournamentMatches(id, req.user.id);
+  async getTournamentMatches(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.getTournamentMatches(id, userId);
   }
 
   @Post('match')
-  async predictMatch(@Body() body: any, @Req() req: any) {
+  async predictMatch(@Body() body: MatchPredictionBody, @Req() req: AuthenticatedRequest) {
     const { matchId, homeScore, awayScore } = body;
-    return this.predictionsService.createMatchPrediction(req.user.id, matchId, homeScore, awayScore);
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.createMatchPrediction(userId, matchId, homeScore, awayScore);
   }
 
   @Post('custom-match')
-  async predictCustomMatch(@Body() body: any, @Req() req: any) {
+  async predictCustomMatch(@Body() body: CustomMatchPredictionBody, @Req() req: AuthenticatedRequest) {
     const { customMatchId, homeScore, awayScore } = body;
-    return this.predictionsService.createCustomMatchPrediction(req.user.id, customMatchId, homeScore, awayScore);
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.createCustomMatchPrediction(userId, customMatchId, homeScore, awayScore);
   }
 
   @Post('group')
-  async predictGroup(@Body() body: any, @Req() req: any) {
+  async predictGroup(@Body() body: GroupPredictionBody, @Req() req: AuthenticatedRequest) {
     const { groupId, firstPlaceId, secondPlaceId } = body;
-    return this.predictionsService.createGroupPrediction(req.user.id, groupId, firstPlaceId, secondPlaceId);
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.createGroupPrediction(userId, groupId, firstPlaceId, secondPlaceId);
+  }
+
+  @Get('tournament/:id/outrights')
+  async getTournamentOutrights(@Param('id') tournamentId: string, @Req() req: AuthenticatedRequest) {
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.getTournamentOutrights(tournamentId, userId);
+  }
+
+  @Get('tournament/:id/user/:userId')
+  async getUserPredictions(
+    @Param('id') tournamentId: string,
+    @Param('userId') targetUserId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const requestingUserId = req.user.id;
+    if (!requestingUserId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.getUserPredictionsForTournament(tournamentId, targetUserId);
+  }
+
+  @Post('outrights')
+  async saveOutrightPrediction(@Body() body: SaveOutrightPredictionBody, @Req() req: AuthenticatedRequest) {
+    const { competitionId, mvpId, topScorerId, goalkeeperId } = body;
+    const userId = req.user.id;
+    if (!userId) {
+      throw new BadRequestException('Usuario no registrado o sesión inválida');
+    }
+    return this.predictionsService.saveOutrightPrediction(userId, competitionId, mvpId, topScorerId, goalkeeperId);
   }
 }
+

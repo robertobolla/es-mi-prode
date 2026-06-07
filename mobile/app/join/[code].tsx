@@ -1,17 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { api } from '../../lib/api';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+
+interface TournamentDetails {
+  id: string;
+  name: string;
+  isPublic: boolean;
+  competition?: {
+    name: string;
+  } | null;
+  _count?: {
+    members: number;
+  };
+}
 
 export default function JoinTournamentScreen() {
   const { code } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
-  const [tournament, setTournament] = useState<any>(null);
+  const [tournament, setTournament] = useState<TournamentDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     fetchTournamentDetails();
@@ -44,9 +58,10 @@ export default function JoinTournamentScreen() {
       if (!data) {
         setError('Torneo no encontrado. Verificá el código.');
       } else {
-        setTournament(data);
+        setTournament(data as TournamentDetails);
       }
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as Error;
       console.error('Error al obtener info del torneo:', e);
       setError(e.message || 'Error al cargar información del torneo');
     } finally {
@@ -55,22 +70,35 @@ export default function JoinTournamentScreen() {
   };
 
   const handleConfirmJoin = async () => {
+    if (tournament && !tournament.isPublic && !password.trim()) {
+      Alert.alert('Error', 'La contraseña es obligatoria para ingresar a este torneo.');
+      return;
+    }
+
     setJoining(true);
     try {
       console.log(`🔗 Uniéndose al torneo: ${code}`);
-      const result = await api.post('/tournaments/join', { shareCode: code as string });
+      const result = await api.post('/tournaments/join', { 
+        shareCode: code as string,
+        password: tournament && !tournament.isPublic ? password.trim() : undefined
+      }) as { tournamentId?: string };
       
       if (result && result.tournamentId) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         router.replace(`/tournament/${result.tournamentId}`);
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         router.replace('/(tabs)');
       }
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as Error;
       console.error('Error al unirse:', e);
       if (e.message?.includes('already joined')) {
         Alert.alert('Aviso', 'Ya sos parte de este torneo.', [
-          { text: 'Ir al Torneo', onPress: () => router.replace(`/tournament/${tournament.id}`) }
+          { text: 'Ir al Torneo', onPress: () => router.replace(`/tournament/${tournament?.id}`) }
         ]);
+      } else if (e.message?.includes('Invalid password')) {
+        Alert.alert('Error', 'Contraseña incorrecta. Por favor reintentá.');
       } else {
         Alert.alert('Error', e.message || 'No se pudo unir al torneo');
       }
@@ -81,19 +109,19 @@ export default function JoinTournamentScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={styles.scrollContainer}>
         <ActivityIndicator size="large" color="#EAB308" />
         <Text style={styles.loadingText}>Buscando torneo...</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (error || !tournament) {
     return (
-      <View style={styles.container}>
+      <View style={styles.scrollContainer}>
         <Ionicons name="alert-circle-outline" size={64} color="#EF4444" />
         <Text style={styles.errorTitle}>¡Ups! Algo salió mal</Text>
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText}>{error || 'Torneo no disponible'}</Text>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/')}>
           <Text style={styles.backBtnText}>VOLVER AL INICIO</Text>
         </TouchableOpacity>
@@ -102,63 +130,96 @@ export default function JoinTournamentScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={['#1E293B', '#0F172A']} style={styles.card}>
-        <View style={styles.iconContainer}>
-          <Ionicons name="trophy-outline" size={48} color="#EAB308" />
-        </View>
-        
-        <Text style={styles.title}>¿Querés unirte a este torneo?</Text>
-        
-        <View style={styles.infoBox}>
-          <Text style={styles.tournamentName}>{tournament.name}</Text>
-          <Text style={styles.competitionName}>{tournament.competition?.name || 'Torneo Personalizado'}</Text>
-          
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Ionicons name="people-outline" size={16} color="#94A3B8" />
-              <Text style={styles.metaText}>{tournament._count?.members || 0} jugadores</Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: '#020617' }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.container}>
+          <LinearGradient colors={['#1E293B', '#0F172A']} style={styles.card}>
+            <View style={styles.iconContainer}>
+              <Ionicons name={tournament.isPublic ? "trophy-outline" : "lock-closed-outline"} size={48} color="#EAB308" />
             </View>
-            <View style={styles.metaItem}>
-              <Ionicons name="key-outline" size={16} color="#94A3B8" />
-              <Text style={styles.metaText}>Código: {code}</Text>
+            
+            <Text style={styles.title}>
+              {tournament.isPublic ? '¿Querés unirte a este torneo?' : 'Unirse a torneo privado'}
+            </Text>
+            
+            <View style={styles.infoBox}>
+              <Text style={styles.tournamentName}>{tournament.name}</Text>
+              <Text style={styles.competitionName}>{tournament.competition?.name || 'Torneo Personalizado'}</Text>
+              
+              <View style={styles.metaRow}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="people-outline" size={16} color="#94A3B8" />
+                  <Text style={styles.metaText}>{tournament._count?.members || 0} jugadores</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="key-outline" size={16} color="#94A3B8" />
+                  <Text style={styles.metaText}>Código: {code}</Text>
+                </View>
+              </View>
             </View>
-          </View>
-        </View>
 
-        <View style={styles.buttonRow}>
-          <TouchableOpacity 
-            style={[styles.cancelBtn, joining && { opacity: 0.5 }]} 
-            onPress={() => router.replace('/')}
-            disabled={joining}
-          >
-            <Text style={styles.cancelBtnText}>CANCELAR</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.confirmBtn, joining && { opacity: 0.8 }]} 
-            onPress={handleConfirmJoin}
-            disabled={joining}
-          >
-            {joining ? (
-              <ActivityIndicator color="#422006" size="small" />
-            ) : (
-              <Text style={styles.confirmBtnText}>UNIRME</Text>
+            {!tournament.isPublic && (
+              <View style={styles.passwordContainer}>
+                <Text style={styles.passwordLabel}>Este torneo es privado. Ingresá la contraseña:</Text>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Contraseña"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </View>
             )}
-          </TouchableOpacity>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity 
+                style={[styles.cancelBtn, joining && { opacity: 0.5 }]} 
+                onPress={() => router.replace('/')}
+                disabled={joining}
+              >
+                <Text style={styles.cancelBtnText}>CANCELAR</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.confirmBtn, joining && { opacity: 0.8 }]} 
+                onPress={handleConfirmJoin}
+                disabled={joining}
+              >
+                {joining ? (
+                  <ActivityIndicator color="#422006" size="small" />
+                ) : (
+                  <Text style={styles.confirmBtnText}>UNIRME</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
         </View>
-      </LinearGradient>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  scrollContainer: {
+    flexGrow: 1,
     backgroundColor: '#020617',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  container: {
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingText: {
     color: '#94A3B8',
@@ -252,6 +313,26 @@ const styles = StyleSheet.create({
   metaText: {
     color: '#64748B',
     fontSize: 13,
+  },
+  passwordContainer: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  passwordLabel: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  passwordInput: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    color: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    fontSize: 15,
   },
   buttonRow: {
     flexDirection: 'row',

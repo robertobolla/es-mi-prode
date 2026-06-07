@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request, UploadedFile, UseInterceptors, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CustomTournamentService } from './custom-tournament.service';
@@ -16,7 +16,7 @@ export class CustomTournamentController {
 
   private async getUserId(req: any): Promise<string> {
     const user = await this.usersService.findBySupabaseId(req.user.userId);
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundException('User not found');
     return user.id;
   }
 
@@ -56,6 +56,18 @@ export class CustomTournamentController {
     return this.customService.removeTeam(tournamentId, teamId, userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Patch('teams/:teamId')
+  async updateTeam(
+    @Param('tournamentId') tournamentId: string,
+    @Param('teamId') teamId: string,
+    @Request() req,
+    @Body() body: { name?: string; abbreviation?: string; color?: string; logoUrl?: string },
+  ) {
+    const userId = await this.getUserId(req);
+    return this.customService.updateTeam(tournamentId, teamId, userId, body);
+  }
+
   // ── TEAM LOGO UPLOAD ──────────────────────────────────
 
   @UseGuards(JwtAuthGuard)
@@ -83,7 +95,7 @@ export class CustomTournamentController {
         upsert: true,
       });
     
-    if (error) throw new Error(`Upload failed: ${error.message}`);
+    if (error) throw new InternalServerErrorException(`Upload failed: ${error.message}`);
     
     const { data: urlData } = supabase.storage.from('assets').getPublicUrl(fileName);
     
@@ -134,6 +146,17 @@ export class CustomTournamentController {
   ) {
     const userId = await this.getUserId(req);
     return this.customService.removePhase(tournamentId, phaseId, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('phases/:phaseId/finalize')
+  async finalizePhase(
+    @Param('tournamentId') tournamentId: string,
+    @Param('phaseId') phaseId: string,
+    @Request() req,
+  ) {
+    const userId = await this.getUserId(req);
+    return this.customService.finalizePhase(tournamentId, phaseId, userId);
   }
 
   // ── MATCHES ────────────────────────────────────────────

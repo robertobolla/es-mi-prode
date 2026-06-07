@@ -1,30 +1,107 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Share, Modal, Clipboard, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Share as RNShare, Modal, Clipboard, Image } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { api } from '../../../lib/api';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+interface TournamentPointsSystem {
+  exactMatch?: number;
+  exact?: number;
+  correctResult?: number;
+  result?: number;
+  matchdayWinner?: number;
+  topScorer?: number;
+  mvp?: number;
+  goalkeeper?: number;
+  groupExact?: number;
+  groupBoth?: number;
+  groupOne?: number;
+}
+
+interface TournamentMember {
+  id: string;
+  userId: string;
+  totalPoints: number;
+  exactResults: number;
+  correctResults: number;
+  matchdayWins: number;
+  user?: {
+    username?: string;
+    avatarUrl?: string | null;
+  };
+}
+
+interface MatchdayWinner {
+  id: string;
+  matchdayNumber: number;
+  userId: string;
+}
+
+interface TournamentDetail {
+  id: string;
+  creatorId: string;
+  name: string;
+  competitionId?: string | null;
+  competition?: {
+    id: string;
+    name: string;
+  } | null;
+  shareCode: string;
+  members?: TournamentMember[];
+  pointsSystem?: TournamentPointsSystem;
+  format?: string;
+  predictTopScorer?: boolean;
+  predictMvp?: boolean;
+  predictGoalkeeper?: boolean;
+  predictGroups?: boolean;
+  matchdayWinners?: MatchdayWinner[];
+}
+
+interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+}
+
 export default function TournamentDetailScreen() {
   const { id } = useLocalSearchParams();
-  const [tournament, setTournament] = useState<any>(null);
+  const [tournament, setTournament] = useState<TournamentDetail | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showRules, setShowRules] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
+
+
   useEffect(() => {
-    fetchTournament();
+    fetchInitialData();
   }, [id]);
+
+  const fetchInitialData = async () => {
+    setLoading(true);
+    try {
+      const [tData, uData] = await Promise.all([
+        api.get(`/tournaments/${id}`),
+        api.get('/users/me')
+      ]);
+      setTournament(tData as TournamentDetail);
+      setCurrentUser(uData as UserProfile);
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'No se pudo cargar la información');
+      router.back();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchTournament = async () => {
     try {
       const data = await api.get(`/tournaments/${id}`);
-      setTournament(data);
-    } catch (e: any) {
-      Alert.alert('Error', 'No se pudo cargar la información del torneo');
-      router.back();
-    } finally {
-      setLoading(false);
+      setTournament(data as TournamentDetail);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo actualizar la información');
     }
   };
 
@@ -34,11 +111,12 @@ export default function TournamentDetailScreen() {
       const { API_URL } = await import('../../../lib/api');
       const shareUrl = `${API_URL}/invitations/join/${tournament.shareCode}`;
       
-      await Share.share({
+      await RNShare.share({
         message: `¡Sumate a mi prode "${tournament.name}"!\n\nUnite haciendo clic acá:\n${shareUrl}\n\nCódigo: ${tournament.shareCode}`,
       });
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
+    } catch (error) {
+      const err = error as Error;
+      Alert.alert('Error', err.message);
     }
   };
 
@@ -61,8 +139,8 @@ export default function TournamentDetailScreen() {
 
   // Get current matchday winners (for the latest resolved matchday)
   const latestMatchday = tournament.matchdayWinners?.[0]?.matchdayNumber;
-  const currentWinners = tournament.matchdayWinners?.filter((w: any) => w.matchdayNumber === latestMatchday) || [];
-  const currentWinnerIds = currentWinners.map((w: any) => w.userId);
+  const currentWinners = tournament.matchdayWinners?.filter((w: MatchdayWinner) => w.matchdayNumber === latestMatchday) || [];
+  const currentWinnerIds = currentWinners.map((w: MatchdayWinner) => w.userId);
 
   const ruleItems = [
     { id: '1', label: 'Resultado Exacto', value: points.exactMatch || points.exact, icon: 'star' },
@@ -81,9 +159,20 @@ export default function TournamentDetailScreen() {
       <ScrollView>
         {/* ── HEADER ── */}
         <LinearGradient colors={['#0F172A', '#020617']} style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#F8FAFC" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={24} color="#F8FAFC" />
+            </TouchableOpacity>
+
+            {currentUser?.id === tournament.creatorId && !tournament.competitionId && (
+              <TouchableOpacity 
+                style={[styles.backBtn, { backgroundColor: 'rgba(234, 179, 8, 0.15)', borderColor: 'rgba(234, 179, 8, 0.2)', borderWidth: 1 }]} 
+                onPress={() => router.push(`/tournament/${id}/manage`)}
+              >
+                <Ionicons name="settings-outline" size={22} color="#EAB308" />
+              </TouchableOpacity>
+            )}
+          </View>
           
           <View style={styles.headerInfo}>
             <Text style={styles.tournamentName}>{tournament.name}</Text>
@@ -98,33 +187,66 @@ export default function TournamentDetailScreen() {
         </LinearGradient>
 
         {/* ── ACCIONES ── */}
-        <View style={styles.actionsRow}>
+        {/* ── ACCIONES ── */}
+        <View style={styles.actionsContainer}>
           <TouchableOpacity 
-            style={styles.actionBtn} 
+            style={styles.primaryActionBtn} 
             onPress={() => router.push(`/tournament/${id}/predict`)}
           >
-            <LinearGradient colors={['#EAB308', '#CA8A04']} style={styles.actionGradient}>
-              <Ionicons name="football" size={24} color="#422006" />
-              <Text style={styles.actionBtnText}>PREDECIR</Text>
+            <LinearGradient colors={['#EAB308', '#CA8A04']} style={styles.primaryGradient}>
+              <Ionicons name="football" size={22} color="#422006" />
+              <Text style={styles.primaryActionBtnText}>PREDECIR</Text>
             </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.actionBtnSecondary}
-            onPress={() => router.push(`/tournament/${id}/chat`)}
-          >
-            <Ionicons name="chatbubbles-outline" size={24} color="#94A3B8" />
-            <Text style={styles.actionBtnTextSec}>CHAT</Text>
-          </TouchableOpacity>
+          <View style={styles.secondaryActionsRow}>
+            <TouchableOpacity 
+              style={styles.secondaryActionBtn}
+              onPress={() => router.push(`/tournament/${id}/chat`)}
+            >
+              <Ionicons name="chatbubbles-outline" size={20} color="#94A3B8" />
+              <Text style={styles.secondaryActionBtnText}>CHAT</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.actionBtnSecondary}
-            onPress={() => setShowRules(true)}
-          >
-            <Ionicons name="information-circle-outline" size={24} color="#94A3B8" />
-            <Text style={styles.actionBtnTextSec}>REGLAS</Text>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.secondaryActionBtn}
+              onPress={() => setShowRules(true)}
+            >
+              <Ionicons name="information-circle-outline" size={20} color="#94A3B8" />
+              <Text style={styles.secondaryActionBtnText}>REGLAS</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.secondaryActionBtn}
+              onPress={() => router.push(`/tournament/${id}/share`)}
+            >
+              <Ionicons name="share-social-outline" size={20} color="#EAB308" />
+              <Text style={[styles.secondaryActionBtnText, { color: '#EAB308' }]}>COMPARTIR</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* ── ESPECIALES BANNER ── */}
+        {(tournament.predictMvp || tournament.predictTopScorer || tournament.predictGoalkeeper) && (
+          <TouchableOpacity 
+            style={styles.specialCard}
+            onPress={() => router.push(`/tournament/${id}/outrights`)}
+          >
+            <LinearGradient 
+              colors={['rgba(234, 179, 8, 0.15)', 'rgba(234, 179, 8, 0.05)']} 
+              style={styles.specialGradient}
+            >
+              <View style={styles.specialTextCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="trophy" size={18} color="#EAB308" />
+                  <Text style={styles.specialTitle}>Predicciones Especiales</Text>
+                </View>
+                <Text style={styles.specialSubtitle}>Elegí tu MVP, Goleador y Mejor Arquero</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#EAB308" />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
 
         {/* ── RANKING HEADER ── */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 14, backgroundColor: '#0F172A', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
@@ -147,16 +269,33 @@ export default function TournamentDetailScreen() {
           {members.length === 0 ? (
             <Text style={styles.emptyText}>No hay participantes aún</Text>
           ) : (
-            members.map((m: any, index: number) => {
+            members.map((m: TournamentMember, index: number) => {
               const isCurrentWinner = currentWinnerIds.includes(m.userId);
               return (
-                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' }}>
+                <TouchableOpacity
+                  key={m.id}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.03)' }}
+                  activeOpacity={0.6}
+                  onPress={() => router.push(`/tournament/${id}/user-predictions?userId=${m.userId}&username=${encodeURIComponent(m.user?.username || 'Usuario')}`)}
+                >
                   <View style={{ width: 36, alignItems: 'center' }}>
                     <Text style={[{ fontSize: 14, fontWeight: '900', color: '#94A3B8' }, index < 3 && { color: '#EAB308', fontSize: 18 }]}>
                       {index + 1}
                     </Text>
                   </View>
                   <View style={{ flex: 1, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center' }}>
+                    {m.user?.avatarUrl ? (
+                      <Image 
+                        source={{ uri: m.user.avatarUrl }} 
+                        style={styles.avatarImage} 
+                      />
+                    ) : (
+                      <View style={styles.avatarFallback}>
+                        <Text style={styles.avatarFallbackText}>
+                          {(m.user?.username || 'U').substring(0, 1).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
                     <Text style={[{ fontSize: 14, fontWeight: '600', color: '#F8FAFC' }, index === 0 && { color: '#EAB308' }]} numberOfLines={1}>
                       {m.user?.username || 'Usuario'}
                     </Text>
@@ -170,14 +309,19 @@ export default function TournamentDetailScreen() {
                   <View style={{ width: 50, alignItems: 'center' }}>
                     <Text style={{ fontSize: 14, fontWeight: '900', color: '#EAB308' }}>{m.totalPoints}</Text>
                   </View>
-                  <View style={{ width: 56, alignItems: 'center' }}>
+                  <View style={{ width: 56, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
                     <Text style={{ fontSize: 12, color: '#94A3B8' }}>{m.exactResults} / {m.correctResults}</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#334155" />
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
         </View>
+
+        <Text style={styles.tableLegend}>
+          * E / C: Marcadores Exactos / Resultados Correctos (1X2) acertados
+        </Text>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -197,14 +341,14 @@ export default function TournamentDetailScreen() {
               {[
                 { label: 'Resultado Exacto', value: points.exactMatch || points.exact, icon: 'star' },
                 { label: 'Resultado (1X2)', value: points.correctResult || points.result, icon: 'checkmark-done' },
-                ...(tournament.format === 'liga' ? [{ label: 'Ganador de Fecha', value: points.matchdayWinner, icon: 'medal' }] : []),
-                { label: 'Goleador', value: points.topScorer, icon: 'football' },
-                { label: 'MVP', value: points.mvp, icon: 'trophy' },
-                { label: 'Valla Invicta', value: points.goalkeeper, icon: 'shield-checkmark' },
-                { label: 'Clasificados (Orden Exacto)', value: points.groupExact, icon: 'list' },
-                { label: 'Clasificados (Cualquier Orden)', value: points.groupBoth, icon: 'swap-horizontal' },
-                { label: 'Solo un Clasificado', value: points.groupOne, icon: 'remove' },
-              ].filter(item => item.value !== undefined && item.value !== null).map((item, index) => (
+                { label: 'Ganador de Fecha', value: points.matchdayWinner, icon: 'medal', condition: tournament.format === 'liga' },
+                { label: 'Goleador', value: points.topScorer, icon: 'football', condition: tournament.predictTopScorer },
+                { label: 'MVP', value: points.mvp, icon: 'trophy', condition: tournament.predictMvp },
+                { label: 'Valla Invicta', value: points.goalkeeper, icon: 'shield-checkmark', condition: tournament.predictGoalkeeper },
+                { label: 'Clasificados (Orden Exacto)', value: points.groupExact, icon: 'list', condition: tournament.predictGroups },
+                { label: 'Clasificados (Cualquier Orden)', value: points.groupBoth, icon: 'swap-horizontal', condition: tournament.predictGroups },
+                { label: 'Solo un Clasificado', value: points.groupOne, icon: 'remove', condition: tournament.predictGroups },
+              ].filter(item => item.value !== undefined && item.value !== null && item.condition !== false).map((item, index) => (
                 <View key={index} style={modalStyles.ruleItem}>
                   <View style={modalStyles.ruleIcon}>
                     <Ionicons name={item.icon as any} size={20} color="#EAB308" />
@@ -216,7 +360,8 @@ export default function TournamentDetailScreen() {
                 </View>
               ))}
               <Text style={modalStyles.footerNote}>
-                * Los puntos se suman al finalizar cada partido u oficializar resultados de fase.
+                * Los puntos se suman al finalizar cada partido u oficializar resultados de fase.{"\n\n"}
+                * E / C en la tabla: Aciertos de marcador Exacto / Aciertos de resultado Ganador o Empate (Correcto).
               </Text>
             </ScrollView>
 
@@ -266,9 +411,12 @@ export default function TournamentDetailScreen() {
           </View>
         </View>
       </Modal>
+
     </View>
   );
 }
+
+// Trigger watch event to clear stale Metro bundler cache
 
 const styles = StyleSheet.create({
   container: {
@@ -329,45 +477,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 2,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    padding: 20,
+  actionsContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     gap: 12,
   },
-  actionBtn: {
-    flex: 2,
-    height: 60,
+  primaryActionBtn: {
+    width: '100%',
+    height: 52,
     borderRadius: 16,
     overflow: 'hidden',
+    shadowColor: '#EAB308',
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 6,
+    elevation: 3,
   },
-  actionGradient: {
+  primaryGradient: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  actionBtnText: {
+  primaryActionBtnText: {
     color: '#422006',
     fontWeight: '900',
     fontSize: 16,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
-  actionBtnSecondary: {
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  secondaryActionBtn: {
     flex: 1,
-    height: 60,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    height: 56,
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  actionBtnTextSec: {
+  secondaryActionBtnText: {
     color: '#94A3B8',
-    fontWeight: 'bold',
-    fontSize: 12,
+    fontWeight: '800',
+    fontSize: 11,
     marginTop: 4,
+    letterSpacing: 0.5,
   },
   tableHeader: {
     flexDirection: 'row',
@@ -414,6 +573,63 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#64748B',
     letterSpacing: 1,
+  },
+  specialCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.25)',
+  },
+  specialGradient: {
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  specialTextCol: {
+    flex: 1,
+    gap: 4,
+  },
+  specialTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#EAB308',
+    letterSpacing: 0.5,
+  },
+  specialSubtitle: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  avatarImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  avatarFallback: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  avatarFallbackText: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  tableLegend: {
+    color: '#64748B',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 12,
+    fontStyle: 'italic',
+    fontWeight: '500',
   },
 });
 
@@ -595,3 +811,4 @@ const shareStyles = StyleSheet.create({
     letterSpacing: 1,
   },
 });
+

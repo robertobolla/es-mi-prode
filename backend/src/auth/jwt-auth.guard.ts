@@ -1,8 +1,18 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { createClient } from '@supabase/supabase-js';
+import { PrismaService } from '../prisma/prisma.service';
+
+interface AuthenticatedUser {
+  id: string;
+  userId: string;
+  email: string;
+  isAdmin: boolean;
+}
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  constructor(private prisma: PrismaService) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
@@ -26,11 +36,47 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token: ' + (error?.message || 'Unknown error'));
     }
 
-    // Attach user payload to request
-    request.user = {
-      userId: data.user.id,
-      email: data.user.email,
+    const supabaseId = data.user.id;
+    const email = data.user.email || '';
+
+    // Resolve internal DB user by supabaseId, fallback to email, auto-create if needed
+    let user = await this.prisma.user.findUnique({ where: { supabaseId } });
+
+    if (!user && email) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+      if (user) {
+        // Sync the supabaseId for future lookups
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { supabaseId },
+        });
+        console.log(`[JwtAuthGuard] Synced supabaseId for user ${email}`);
+      }
+    }
+
+    if (!user) {
+      // Auto-register
+      const username = email.split('@')[0] + Math.floor(Math.random() * 1000);
+      user = await this.prisma.user.create({
+        data: {
+          supabaseId,
+          email,
+          username,
+          fullName: 'Nueva Leyenda',
+          isAdmin: email === 'bblasivan@gmail.com' || email === 'robertobolla9@gmail.com',
+        },
+      });
+      console.log(`[JwtAuthGuard] Auto-created user ${email} with id ${user.id}`);
+    }
+
+    // Attach full user payload to request — id is the internal DB UUID
+    const authenticatedUser: AuthenticatedUser = {
+      id: user.id,
+      userId: supabaseId,
+      email,
+      isAdmin: user.isAdmin,
     };
+    request.user = authenticatedUser;
 
     return true;
   }

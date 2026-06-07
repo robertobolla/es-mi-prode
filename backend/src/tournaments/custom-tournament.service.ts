@@ -38,6 +38,19 @@ export class CustomTournamentService {
     return this.prisma.customTeam.delete({ where: { id: teamId } });
   }
 
+  async updateTeam(tournamentId: string, teamId: string, creatorUserId: string, data: {
+    name?: string;
+    abbreviation?: string;
+    logoUrl?: string;
+    color?: string;
+  }) {
+    await this.verifyCreator(tournamentId, creatorUserId);
+    return this.prisma.customTeam.update({
+      where: { id: teamId },
+      data,
+    });
+  }
+
   // ── PHASES ─────────────────────────────────────────────
 
   async addPhase(tournamentId: string, creatorUserId: string, data: {
@@ -71,6 +84,32 @@ export class CustomTournamentService {
   async removePhase(tournamentId: string, phaseId: string, creatorUserId: string) {
     await this.verifyCreator(tournamentId, creatorUserId);
     return this.prisma.customPhase.delete({ where: { id: phaseId } });
+  }
+
+  async finalizePhase(tournamentId: string, phaseId: string, creatorUserId: string) {
+    await this.verifyCreator(tournamentId, creatorUserId);
+    
+    const phase = await this.prisma.customPhase.findUnique({
+      where: { id: phaseId },
+      include: { matches: true }
+    });
+
+    if (!phase) throw new NotFoundException('Phase not found');
+    
+    const allFinished = phase.matches.every(m => m.status === 'FINISHED');
+    if (!allFinished) {
+      throw new ForbiddenException('No se puede finalizar la fecha: aún hay partidos sin resultado');
+    }
+
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId }
+    });
+
+    if (tournament?.format === 'liga') {
+      return this.scoringService.calculateMatchdayWinner(tournamentId, phaseId, phase.order, 'custom');
+    }
+
+    return { message: 'Fase finalizada (solo los torneos de liga tienen ganadores de fecha)' };
   }
 
   // ── MATCHES ────────────────────────────────────────────
@@ -159,18 +198,27 @@ export class CustomTournamentService {
     const teamIds = tournament.customTeams.map((t) => t.id);
     const fixtures = generateRoundRobinFixtures(teamIds, tournament.roundTrip);
 
-    // Base date for matches (default: today)
-    const baseDate = matchDate ? new Date(matchDate) : new Date();
+    // Base date for matches: if not provided, default to tomorrow at 20:00
+    let baseDate: Date;
+    if (matchDate) {
+      baseDate = new Date(matchDate);
+    } else {
+      baseDate = new Date();
+      baseDate.setUTCDate(baseDate.getUTCDate() + 1);
+      baseDate.setUTCHours(20, 0, 0, 0);
+    }
 
     // Create phases (one per matchday) and matches
     for (const matchday of fixtures) {
       // Each matchday is 7 days apart by default
       const matchdayDate = new Date(baseDate);
-      matchdayDate.setDate(matchdayDate.getDate() + (matchday.matchdayNumber - 1) * 7);
+      matchdayDate.setUTCDate(matchdayDate.getUTCDate() + (matchday.matchdayNumber - 1) * 7);
+      // Ensure it's exactly at the same time as baseDate in UTC
+      matchdayDate.setUTCMinutes(0, 0, 0);
 
       // Predictions close 1 hour before the matchday
       const closeDate = new Date(matchdayDate);
-      closeDate.setHours(closeDate.getHours() - 1);
+      closeDate.setUTCHours(closeDate.getUTCHours() - 1);
 
       const phase = await this.prisma.customPhase.create({
         data: {

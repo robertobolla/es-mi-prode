@@ -22,6 +22,7 @@ import { CronModule } from './cron/cron.module';
 import { ChatModule } from './chat/chat.module';
 
 import { ConfigModule } from '@nestjs/config';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -30,6 +31,6 @@ import { ConfigModule } from '@nestjs/config';
     PrismaModule, AuthModule, UsersModule, CompetitionsModule, MatchesModule, TournamentsModule, TournamentMembersModule, InvitationsModule, PredictionsModule, RankingsModule, ScoringModule, BadgesModule, NotificationsModule, PurchasesModule, AdminModule, StatsModule, CronModule, ChatModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, JwtAuthGuard],
 })
 export class AppModule {}

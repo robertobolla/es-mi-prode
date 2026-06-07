@@ -14,8 +14,17 @@ export class ChatService {
       throw new ForbiddenException('Not a member');
     }
 
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { blockedUserIds: true }
+    });
+    const blockedUserIds = user?.blockedUserIds || [];
+
     return this.prisma.chatMessage.findMany({
-      where: { tournamentId },
+      where: { 
+        tournamentId,
+        userId: { notIn: blockedUserIds }
+      },
       include: {
         user: { select: { id: true, username: true, avatarUrl: true, fullName: true } }
       },

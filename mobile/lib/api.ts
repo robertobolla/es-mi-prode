@@ -13,18 +13,23 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
 
+  const isFormData = options.body instanceof FormData;
+
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'Bypass-Tunnel-Reminder': 'true',
     ...((options.headers as object) || {}),
   };
+
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos de timeout
+  const timeoutId = setTimeout(() => controller.abort(), __DEV__ ? 15000 : 35000); 
 
   try {
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -66,7 +71,13 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
 
 export const api = {
   get: (endpoint: string) => apiFetch(endpoint, { method: 'GET' }),
-  post: (endpoint: string, body: any) => apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) }),
-  patch: (endpoint: string, body: any) => apiFetch(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
+  post: (endpoint: string, body: any) => apiFetch(endpoint, { 
+    method: 'POST', 
+    body: body instanceof FormData ? body : JSON.stringify(body) 
+  }),
+  patch: (endpoint: string, body: any) => apiFetch(endpoint, { 
+    method: 'PATCH', 
+    body: body instanceof FormData ? body : JSON.stringify(body) 
+  }),
   delete: (endpoint: string) => apiFetch(endpoint, { method: 'DELETE' }),
 };

@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiFetch } from '../lib/api';
 
 interface DashboardData {
   activeCompetitions: number;
@@ -23,7 +22,7 @@ export default function DashboardHome() {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const res = await fetch(`${API_URL}/stats/summary`);
+        const res = await apiFetch('/stats/summary');
         if (!res.ok) throw new Error('Error fetching stats');
         const json = await res.json();
         setData(json);

@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Es Mi Prode",
     "slug": "mobile",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "scheme": "es-mi-prode",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,15 +14,25 @@
     },
     "ios": {
       "bundleIdentifier": "com.esmi.prode",
-      "buildNumber": "4",
-      "supportsTablet": true,
+      "buildNumber": "20",
+      "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Es Mi Prode necesita acceso a tu cámara para tomar fotos y usar de fondo al compartir la tabla.",
+        "NSPhotoLibraryUsageDescription": "Es Mi Prode necesita acceso a tu galería para elegir imágenes o videos de fondo al compartir la tabla.",
+        "LSApplicationQueriesSchemes": [
+          "instagram-stories",
+          "facebook-stories",
+          "facebook",
+          "instagram",
+          "twitter",
+          "whatsapp"
+        ]
       }
     },
     "android": {
       "package": "com.esmi.prode",
-      "versionCode": 4,
+      "versionCode": 20,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -37,7 +47,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "router": {},

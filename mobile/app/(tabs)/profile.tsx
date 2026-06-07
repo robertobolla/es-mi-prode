@@ -1,12 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { router } from 'expo-router';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Modal, TextInput, Alert, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 
 import { Ionicons } from '@expo/vector-icons';
+import { STATES_BY_COUNTRY } from '../../lib/states';
+
+const COUNTRIES = [
+  { id: 'AR', name: 'Argentina', flag: '🇦🇷' },
+  { id: 'UY', name: 'Uruguay', flag: '🇺🇾' },
+  { id: 'CL', name: 'Chile', flag: '🇨🇱' },
+  { id: 'BR', name: 'Brasil', flag: '🇧🇷' },
+  { id: 'CO', name: 'Colombia', flag: '🇨🇴' },
+  { id: 'MX', name: 'México', flag: '🇲🇽' },
+  { id: 'ES', name: 'España', flag: '🇪🇸' },
+  { id: 'US', name: 'Estados Unidos', flag: '🇺🇸' },
+  { id: 'OTHER', name: 'Otro', flag: '🌎' },
+];
 
 // Gravatar URL from email (MD5 hash)
 function getGravatarUrl(email: string, size = 200) {
@@ -25,15 +39,29 @@ function simpleHash(str: string) {
   return Math.abs(hash).toString(16);
 }
 
+function formatDob(dobString: string | null) {
+  if (!dobString) return '';
+  const date = new Date(dobString);
+  if (isNaN(date.getTime())) return '';
+  const d = date.getDate().toString().padStart(2, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+
 export default function ProfileScreen() {
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [])
+  );
 
   const fetchProfile = async () => {
     try {
@@ -68,7 +96,17 @@ export default function ProfileScreen() {
         <Image source={avatarSource} style={styles.avatar} />
         <Text style={styles.name}>{profile?.fullName || profile?.username || 'Jugador'}</Text>
         <Text style={styles.username}>@{profile?.username}</Text>
-        {profile?.country && <Text style={styles.country}>📍 {profile.country}</Text>}
+        <Text style={styles.emailText}>📧 {profile?.email}</Text>
+        {(profile?.city || profile?.state || profile?.country) && (
+          <Text style={styles.country}>
+            📍 {[profile.city, profile.state, profile.country].filter(Boolean).join(', ')}
+          </Text>
+        )}
+        {profile?.dob && (
+          <Text style={styles.dobText}>
+            📅 Nacimiento: {formatDob(profile.dob)}
+          </Text>
+        )}
         {profile?.bio && <Text style={styles.bio}>{profile.bio}</Text>}
 
         <TouchableOpacity style={styles.editBtn} onPress={() => setShowEdit(true)}>
@@ -151,6 +189,8 @@ export default function ProfileScreen() {
         style={styles.logoutBtn} 
         onPress={async () => {
           await supabase.auth.signOut();
+          queryClient.clear();
+          setProfile(null);
           router.replace('/(auth)/login');
         }}
       >
@@ -180,22 +220,71 @@ export default function ProfileScreen() {
   );
 }
 
-function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
+interface EditProfileModalProps {
+  visible: boolean;
+  profile: {
+    id: string;
+    email: string;
+    fullName: string | null;
+    country: string | null;
+    city: string | null;
+    state: string | null;
+    bio: string | null;
+    avatarUrl: string | null;
+    gender: string | null;
+    dob: string | null;
+  } | null;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function EditProfileModal({ visible, profile, onClose, onSaved }: EditProfileModalProps) {
   const [fullName, setFullName] = useState('');
   const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [stateName, setStateName] = useState('');
+  const [showCountryModal, setShowCountryModal] = useState(false);
+  const [showStateModal, setShowStateModal] = useState(false);
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [gender, setGender] = useState('');
+  const [day, setDay] = useState('01');
+  const [month, setMonth] = useState('01');
+  const [year, setYear] = useState('2000');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    // Only run this when country changes after modal is visible to reset stateName if invalid
+    if (!visible) return;
+    const available = STATES_BY_COUNTRY[country];
+    if (available && !available.includes(stateName)) {
+      setStateName(available[0] || '');
+    }
+  }, [country]);
 
   useEffect(() => {
     if (profile) {
       setFullName(profile.fullName || '');
       setCountry(profile.country || '');
+      setCity(profile.city || '');
+      setStateName(profile.state || '');
       setBio(profile.bio || '');
       setAvatarUrl(profile.avatarUrl || '');
       setGender(profile.gender || '');
+      
+      if (profile.dob) {
+        const date = new Date(profile.dob);
+        if (!isNaN(date.getTime())) {
+          setDay(date.getDate().toString().padStart(2, '0'));
+          setMonth((date.getMonth() + 1).toString().padStart(2, '0'));
+          setYear(date.getFullYear().toString());
+        }
+      } else {
+        setDay('01');
+        setMonth('01');
+        setYear('2000');
+      }
     }
   }, [profile, visible]);
 
@@ -214,6 +303,10 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
   };
 
   const handleUpload = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (!profile) {
+      Alert.alert('Error', 'No se pudo cargar el perfil del usuario');
+      return;
+    }
     setUploading(true);
     try {
       const fileName = `${profile.id}/${Date.now()}.jpg`;
@@ -243,14 +336,42 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
   };
 
   const handleSave = async () => {
+    const dVal = parseInt(day, 10);
+    const mVal = parseInt(month, 10);
+    const yVal = parseInt(year, 10);
+
+    if (isNaN(dVal) || isNaN(mVal) || isNaN(yVal)) {
+      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
+      return;
+    }
+
+    if (dVal < 1 || dVal > 31 || mVal < 1 || mVal > 12 || yVal < 1900 || yVal > new Date().getFullYear()) {
+      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
+      return;
+    }
+
+    const paddedDay = day.trim().padStart(2, '0');
+    const paddedMonth = month.trim().padStart(2, '0');
+    const paddedYear = year.trim();
+    const dobString = `${paddedYear}-${paddedMonth}-${paddedDay}`;
+    const parsedDate = new Date(dobString);
+
+    if (isNaN(parsedDate.getTime())) {
+      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
+      return;
+    }
+
     setSaving(true);
     try {
       await api.patch('/users/me', {
         fullName,
         country,
+        city,
+        state: stateName,
         bio,
         avatarUrl,
         gender,
+        dob: dobString,
       });
       Alert.alert('¡Listo!', 'Tu perfil fue actualizado');
       onSaved();
@@ -293,6 +414,13 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
               </TouchableOpacity>
             </View>
 
+            <Text style={editStyles.label}>Correo electrónico (no modificable)</Text>
+            <TextInput
+              style={[editStyles.input, { opacity: 0.6 }]}
+              value={profile?.email || ''}
+              editable={false}
+            />
+
             <Text style={editStyles.label}>Nombre completo</Text>
             <TextInput
               style={editStyles.input}
@@ -303,13 +431,78 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
             />
 
             <Text style={editStyles.label}>País</Text>
+            <TouchableOpacity 
+              style={[editStyles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => setShowCountryModal(true)}
+            >
+              <Text style={{ color: country ? '#F8FAFC' : '#475569', fontSize: 15 }}>
+                {country || 'Selecciona un país'}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+
+            <Text style={editStyles.label}>Provincia / Estado</Text>
+            {STATES_BY_COUNTRY[country] ? (
+              <TouchableOpacity 
+                style={[editStyles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                onPress={() => setShowStateModal(true)}
+              >
+                <Text style={{ color: stateName ? '#F8FAFC' : '#475569', fontSize: 15 }}>
+                  {stateName || 'Selecciona Provincia / Estado'}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : (
+              <TextInput
+                style={editStyles.input}
+                placeholder="Provincia / Estado (Opcional)"
+                placeholderTextColor="#475569"
+                value={stateName}
+                onChangeText={setStateName}
+              />
+            )}
+
+            <Text style={editStyles.label}>Ciudad</Text>
             <TextInput
               style={editStyles.input}
-              placeholder="Argentina"
+              placeholder="Buenos Aires"
               placeholderTextColor="#475569"
-              value={country}
-              onChangeText={setCountry}
+              value={city}
+              onChangeText={setCity}
             />
+
+            <Text style={editStyles.label}>Fecha de nacimiento</Text>
+            <View style={editStyles.dobContainer}>
+              <TextInput
+                style={editStyles.dobInput}
+                placeholder="DD"
+                placeholderTextColor="#475569"
+                keyboardType="numeric"
+                maxLength={2}
+                value={day}
+                onChangeText={setDay}
+              />
+              <Text style={editStyles.dobSlash}>/</Text>
+              <TextInput
+                style={editStyles.dobInput}
+                placeholder="MM"
+                placeholderTextColor="#475569"
+                keyboardType="numeric"
+                maxLength={2}
+                value={month}
+                onChangeText={setMonth}
+              />
+              <Text style={editStyles.dobSlash}>/</Text>
+              <TextInput
+                style={[editStyles.dobInput, { width: 50 }]}
+                placeholder="YYYY"
+                placeholderTextColor="#475569"
+                keyboardType="numeric"
+                maxLength={4}
+                value={year}
+                onChangeText={setYear}
+              />
+            </View>
 
             <Text style={editStyles.label}>Género</Text>
             <View style={editStyles.genderRow}>
@@ -351,15 +544,121 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: any) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Country Modal */}
+      <Modal
+        visible={showCountryModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCountryModal(false)}
+      >
+        <View style={editStyles.overlay}>
+          <View style={editStyles.container}>
+            <View style={editStyles.headerRow}>
+              <Text style={editStyles.title}>Selecciona tu país</Text>
+              <TouchableOpacity onPress={() => setShowCountryModal(false)}>
+                <Text style={editStyles.closeBtn}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={COUNTRIES}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }: { item: typeof COUNTRIES[number] }) => (
+                <TouchableOpacity 
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(255,255,255,0.05)',
+                  }}
+                  onPress={() => {
+                    setCountry(item.name);
+                    setShowCountryModal(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 24, marginRight: 16 }}>{item.flag}</Text>
+                  <Text style={{ flex: 1, fontSize: 16, color: '#F8FAFC', fontWeight: '500' }}>{item.name}</Text>
+                  {country === item.name && (
+                    <Ionicons name="checkmark-circle" size={20} color="#EAB308" />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* State Modal */}
+      <Modal
+        visible={showStateModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStateModal(false)}
+      >
+        <View style={editStyles.overlay}>
+          <View style={editStyles.container}>
+            <View style={editStyles.headerRow}>
+              <Text style={editStyles.title}>Selecciona tu Provincia / Estado</Text>
+              <TouchableOpacity onPress={() => setShowStateModal(false)}>
+                <Text style={editStyles.closeBtn}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={STATES_BY_COUNTRY[country] || []}
+              keyExtractor={(item) => item}
+              renderItem={({ item }: { item: string }) => (
+                <TouchableOpacity 
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(255,255,255,0.05)',
+                  }}
+                  onPress={() => {
+                    setStateName(item);
+                    setShowStateModal(false);
+                  }}
+                >
+                  <Text style={{ flex: 1, fontSize: 16, color: '#F8FAFC', fontWeight: '500' }}>{item}</Text>
+                  {stateName === item && (
+                    <Ionicons name="checkmark-circle" size={20} color="#EAB308" />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
 
-function SettingsModal({ visible, profile, onClose, onSaved }: any) {
+interface SettingsModalProps {
+  visible: boolean;
+  profile: {
+    email?: string;
+    notifyMatches?: boolean;
+    notifyRanking?: boolean;
+    notifyTournaments?: boolean;
+  } | null;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function SettingsModal({ visible, profile, onClose, onSaved }: SettingsModalProps) {
   const [notifyMatches, setNotifyMatches] = useState(true);
   const [notifyRanking, setNotifyRanking] = useState(true);
   const [notifyTournaments, setNotifyTournaments] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Password change states
+  const [showPasswordFields, setShowPasswordFields] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -378,17 +677,83 @@ function SettingsModal({ visible, profile, onClose, onSaved }: any) {
         notifyTournaments,
       });
       onSaved();
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'No se pudieron guardar los ajustes');
+    } catch (e) {
+      const err = e as Error;
+      Alert.alert('Error', err.message || 'No se pudieron guardar los ajustes');
     } finally {
       setSaving(false);
     }
   };
 
-  const ToggleItem = ({ label, subLabel, value, onValueChange, icon }: any) => (
+  const handleUpdatePassword = async () => {
+    if (!currentPassword) {
+      Alert.alert('Error', 'Ingresá tu contraseña actual.');
+      return;
+    }
+    if (!newPassword) {
+      Alert.alert('Error', 'Ingresá una nueva contraseña.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('Error', 'La nueva contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      Alert.alert('Error', 'La nueva contraseña no puede ser igual a la contraseña actual.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'Las contraseñas no coinciden.');
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const email = profile?.email;
+      if (!email) {
+        throw new Error('No se pudo verificar el correo electrónico del perfil.');
+      }
+
+      // 1. Re-authenticate user to verify current password
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+      if (authError) {
+        throw new Error('La contraseña actual es incorrecta.');
+      }
+
+      // 2. Update password
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
+
+      Alert.alert('¡Éxito!', 'Tu contraseña fue actualizada correctamente.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordFields(false);
+    } catch (e) {
+      const err = e as Error;
+      Alert.alert('Error', err.message || 'No se pudo actualizar la contraseña');
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
+  const ToggleItem = ({ label, subLabel, value, onValueChange, icon }: {
+    label: string;
+    subLabel: string;
+    value: boolean;
+    onValueChange: (val: boolean) => void;
+    icon: string;
+  }) => (
     <View style={settingsStyles.item}>
       <View style={settingsStyles.itemLeft}>
         <View style={settingsStyles.iconBg}>
+          {/* @ts-ignore */}
           <Ionicons name={icon} size={20} color="#EAB308" />
         </View>
         <View style={{ flex: 1 }}>
@@ -409,52 +774,118 @@ function SettingsModal({ visible, profile, onClose, onSaved }: any) {
     <Modal visible={visible} animationType="slide" transparent>
       <View style={settingsStyles.overlay}>
         <View style={settingsStyles.container}>
-          <View style={settingsStyles.headerRow}>
-            <Text style={settingsStyles.title}>Ajustes</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={28} color="#94A3B8" />
-            </TouchableOpacity>
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <View style={settingsStyles.headerRow}>
+              <Text style={settingsStyles.title}>Ajustes</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Ionicons name="close" size={28} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
 
-          <Text style={settingsStyles.sectionTitle}>Notificaciones</Text>
-          
-          <ToggleItem
-            icon="football-outline"
-            label="Recordatorios de Partidos"
-             subLabel="Recibí alertas antes de que empiecen tus partidos"
-            value={notifyMatches}
-            onValueChange={setNotifyMatches}
-          />
+            <Text style={settingsStyles.sectionTitle}>Notificaciones</Text>
+            
+            <ToggleItem
+              icon="football-outline"
+              label="Recordatorios de Partidos"
+              subLabel="Recibí alertas antes de que empiecen tus partidos"
+              value={notifyMatches}
+              onValueChange={setNotifyMatches}
+            />
 
-          <ToggleItem
-            icon="stats-chart-outline"
-            label="Cambios en el Ranking"
-            subLabel="Enterate cuando alguien te pasa o cambia tu posición"
-            value={notifyRanking}
-            onValueChange={setNotifyRanking}
-          />
+            <ToggleItem
+              icon="stats-chart-outline"
+              label="Cambios en el Ranking"
+              subLabel="Enterate cuando alguien te pasa o cambia tu posición"
+              value={notifyRanking}
+              onValueChange={setNotifyRanking}
+            />
 
-          <ToggleItem
-            icon="trophy-outline"
-            label="Nuevos Torneos"
-            subLabel="Avisame cuando se crean torneos oficiales"
-            value={notifyTournaments}
-            onValueChange={setNotifyTournaments}
-          />
+            <ToggleItem
+              icon="trophy-outline"
+              label="Nuevos Torneos"
+              subLabel="Avisame cuando se crean torneos oficiales"
+              value={notifyTournaments}
+              onValueChange={setNotifyTournaments}
+            />
 
-          <TouchableOpacity
-            style={[settingsStyles.saveBtn, saving && { opacity: 0.6 }]}
-            onPress={handleSave}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#422006" />
+            {/* PASSWORD SECURITY SECTION */}
+            <Text style={[settingsStyles.sectionTitle, { marginTop: 16 }]}>Seguridad</Text>
+            
+            {!showPasswordFields ? (
+              <TouchableOpacity 
+                style={settingsStyles.changePasswordBtn}
+                onPress={() => setShowPasswordFields(true)}
+              >
+                <Ionicons name="lock-closed-outline" size={20} color="#EAB308" />
+                <Text style={settingsStyles.changePasswordBtnText}>CAMBIAR CONTRASEÑA</Text>
+              </TouchableOpacity>
             ) : (
-              <Text style={settingsStyles.saveBtnText}>GUARDAR AJUSTES</Text>
+              <View style={settingsStyles.passwordContainer}>
+                <TextInput
+                  style={settingsStyles.passwordInput}
+                  placeholder="Contraseña actual"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                />
+                <TextInput
+                  style={settingsStyles.passwordInput}
+                  placeholder="Nueva contraseña (mín. 6 caracteres)"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                />
+                <TextInput
+                  style={settingsStyles.passwordInput}
+                  placeholder="Confirmar nueva contraseña"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                />
+                <View style={settingsStyles.passwordActionsRow}>
+                  <TouchableOpacity 
+                    style={settingsStyles.cancelPasswordBtn}
+                    onPress={() => {
+                      setShowPasswordFields(false);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                    disabled={updatingPassword}
+                  >
+                    <Text style={settingsStyles.cancelPasswordBtnText}>CANCELAR</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[settingsStyles.confirmPasswordBtn, updatingPassword && { opacity: 0.6 }]}
+                    onPress={handleUpdatePassword}
+                    disabled={updatingPassword}
+                  >
+                    {updatingPassword ? (
+                      <ActivityIndicator size="small" color="#422006" />
+                    ) : (
+                      <Text style={settingsStyles.confirmPasswordBtnText}>ACTUALIZAR</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
             )}
-          </TouchableOpacity>
 
-          <View style={{ height: 20 }} />
+            <TouchableOpacity
+              style={[settingsStyles.saveBtn, saving && { opacity: 0.6 }]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator color="#422006" />
+              ) : (
+                <Text style={settingsStyles.saveBtnText}>GUARDAR AJUSTES</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -470,9 +901,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 40,
     paddingTop: 80,
-    backgroundColor: '#0F172A',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#020617',
   },
   settingsIcon: {
     position: 'absolute',
@@ -509,6 +938,16 @@ const styles = StyleSheet.create({
   country: {
     color: '#94A3B8',
     marginTop: 8,
+  },
+  emailText: {
+    color: '#64748B',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  dobText: {
+    color: '#94A3B8',
+    fontSize: 14,
+    marginTop: 4,
   },
   bio: {
     color: '#94A3B8',
@@ -757,6 +1196,30 @@ const editStyles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
     fontSize: 15,
   },
+  dobContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    width: 150,
+  },
+  dobInput: {
+    width: 30,
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    padding: 0,
+  },
+  dobSlash: {
+    color: '#475569',
+    marginHorizontal: 4,
+    fontWeight: 'bold',
+  },
   hint: {
     color: '#475569',
     fontSize: 11,
@@ -914,6 +1377,68 @@ const settingsStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     letterSpacing: 1,
+  },
+  changePasswordBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(234, 179, 8, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.3)',
+    padding: 16,
+    borderRadius: 16,
+    gap: 10,
+    marginTop: 8,
+  },
+  changePasswordBtnText: {
+    color: '#EAB308',
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  passwordContainer: {
+    gap: 12,
+    marginTop: 8,
+  },
+  passwordInput: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    color: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    fontSize: 15,
+  },
+  passwordActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  cancelPasswordBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+  },
+  cancelPasswordBtnText: {
+    color: '#94A3B8',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  confirmPasswordBtn: {
+    flex: 1,
+    backgroundColor: '#EAB308',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  confirmPasswordBtnText: {
+    color: '#422006',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 

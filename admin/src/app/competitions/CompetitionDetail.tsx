@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { apiFetch } from '../../lib/api';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-
-export default function CompetitionDetailPage() {
-  const params = useParams();
+export default function CompetitionDetailClient() {
+  const params = useSearchParams();
   const router = useRouter();
-  const id = params.id as string;
+  const id = params.get('id') as string;
 
   const [comp, setComp] = useState<any>(null);
   const [allTeams, setAllTeams] = useState<any[]>([]);
@@ -33,8 +32,8 @@ export default function CompetitionDetailPage() {
   const fetchAll = async () => {
     try {
       const [compRes, teamsRes] = await Promise.all([
-        fetch(`${API}/competitions/${id}`).then(r => r.json()),
-        fetch(`${API}/teams`).then(r => r.json()).catch(() => []),
+        apiFetch(`/competitions/${id}`).then(r => r.json()),
+        apiFetch('/teams').then(r => r.json()).catch(() => []),
       ]);
       setComp(compRes);
       setAllTeams(teamsRes);
@@ -42,56 +41,56 @@ export default function CompetitionDetailPage() {
     finally { setLoading(false); }
   };
 
-  // ── TEAMS ──────────────────────────────────────
+  // ── TEAMS ───────────────────────────────────────────────────────────────────────────────────────
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
     // Create global team first
-    const teamRes = await fetch(`${API}/teams`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newTeamName.trim() }),
+    const teamRes = await apiFetch('/teams', {
+      method: 'POST',
+      body: { name: newTeamName.trim() },
     });
     const team = await teamRes.json();
     // Link to competition
-    await fetch(`${API}/competitions/${id}/teams`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId: team.id }),
+    await apiFetch(`/competitions/${id}/teams`, {
+      method: 'POST',
+      body: { teamId: team.id },
     });
     setNewTeamName('');
     fetchAll();
   };
 
   const linkExistingTeam = async (teamId: string) => {
-    await fetch(`${API}/competitions/${id}/teams`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teamId }),
+    await apiFetch(`/competitions/${id}/teams`, {
+      method: 'POST',
+      body: { teamId },
     });
     fetchAll();
   };
 
   const removeTeam = async (ctId: string) => {
-    await fetch(`${API}/competitions/${id}/teams/${ctId}`, { method: 'DELETE' });
+    await apiFetch(`/competitions/${id}/teams/${ctId}`, { method: 'DELETE' });
     fetchAll();
   };
 
   const assignTeamToGroup = async (ctId: string, groupId: string) => {
-    await fetch(`${API}/competitions/${id}/teams/${ctId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupId: groupId || null }),
+    await apiFetch(`/competitions/${id}/teams/${ctId}`, {
+      method: 'PATCH',
+      body: { groupId: groupId || null },
     });
     fetchAll();
   };
 
-  // ── PHASES ──────────────────────────────────────
+  // ── PHASES ──────────────────────────────────────────────────────────────────────────────────────
   const addPhase = async () => {
     if (!newPhaseName.trim()) return;
-    await fetch(`${API}/competitions/${id}/phases`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await apiFetch(`/competitions/${id}/phases`, {
+      method: 'POST',
+      body: {
         name: newPhaseName.trim(),
         order: parseInt(newPhaseOrder) || 1,
         openDate: newPhaseOpen || new Date().toISOString(),
         closeDate: newPhaseClose || new Date().toISOString(),
-      }),
+      },
     });
     setNewPhaseName(''); setNewPhaseOrder(String((comp?.phases?.length || 0) + 2));
     fetchAll();
@@ -99,7 +98,7 @@ export default function CompetitionDetailPage() {
 
   const removePhase = async (phaseId: string) => {
     if (!confirm('¿Eliminar esta fase y todos sus partidos?')) return;
-    await fetch(`${API}/competitions/${id}/phases/${phaseId}`, { method: 'DELETE' });
+    await apiFetch(`/competitions/${id}/phases/${phaseId}`, { method: 'DELETE' });
     fetchAll();
   };
 
@@ -107,42 +106,40 @@ export default function CompetitionDetailPage() {
     const count = parseInt(matchdaysCount);
     if (!count || count < 1) return;
     setGenerating(true);
-    await fetch(`${API}/competitions/${id}/generate-matchdays`, {
+    await apiFetch(`/competitions/${id}/generate-matchdays`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count }),
+      body: { count },
     });
     setGenerating(false);
     fetchAll();
   };
 
-  // ── GROUPS ──────────────────────────────────────
+  // ── GROUPS ──────────────────────────────────────────────────────────────────────────────────────
   const addGroup = async () => {
     if (!newGroupName.trim() || !selectedPhaseForGroup) return;
-    await fetch(`${API}/competitions/${id}/phases/${selectedPhaseForGroup}/groups`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newGroupName.trim() }),
+    await apiFetch(`/competitions/${id}/phases/${selectedPhaseForGroup}/groups`, {
+      method: 'POST',
+      body: { name: newGroupName.trim() },
     });
     setNewGroupName('');
     fetchAll();
   };
 
   const updateGroupResult = async (groupId: string, data: any) => {
-    await fetch(`${API}/competitions/groups/${groupId}`, {
+    await apiFetch(`/competitions/groups/${groupId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: data,
     });
     fetchAll();
   };
 
-  // ── MATCHES ──────────────────────────────────────
+  // ── MATCHES ─────────────────────────────────────────────────────────────────────────────────────
   const addMatch = async () => {
     const { phaseId, homeTeamId, awayTeamId, matchDate, groupId } = matchForm;
     if (!phaseId || !homeTeamId || !awayTeamId || !matchDate) return alert('Completá todos los campos');
-    await fetch(`${API}/matches`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phaseId, homeTeamId, awayTeamId, matchDate, groupId: groupId || undefined }),
+    await apiFetch('/matches', {
+      method: 'POST',
+      body: { phaseId, homeTeamId, awayTeamId, matchDate, groupId: groupId || undefined },
     });
     setMatchForm({ phaseId: '', groupId: '', homeTeamId: '', awayTeamId: '', matchDate: '' });
     fetchAll();
@@ -151,15 +148,15 @@ export default function CompetitionDetailPage() {
   const saveResult = async (matchId: string) => {
     const r = resultForm[matchId];
     if (!r) return;
-    await fetch(`${API}/matches/${matchId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await apiFetch(`/matches/${matchId}`, {
+      method: 'PATCH',
+      body: {
         homeScore90: parseInt(r.h90) || 0,
         awayScore90: parseInt(r.a90) || 0,
         homeScore120: r.h120 !== '' ? parseInt(r.h120) : undefined,
         awayScore120: r.a120 !== '' ? parseInt(r.a120) : undefined,
         status: 'FINISHED',
-      }),
+      },
     });
     fetchAll();
   };
@@ -179,7 +176,7 @@ export default function CompetitionDetailPage() {
   const tabs = [
     { key: 'equipos', label: '⚽ Equipos', count: compTeams.length },
     { key: 'fases', label: comp?.format === 'liga' ? '📅 Fechas' : '📅 Fases y Grupos', count: phases.length },
-    { key: 'partidos', label: '🏟️ Partidos', count: allMatches.length },
+    { key: 'partidos', label: '🏃‍♂️ Partidos', count: allMatches.length },
     { key: 'premios', label: '🏆 Premios', count: 0 },
   ];
 
@@ -242,7 +239,7 @@ export default function CompetitionDetailPage() {
                   {ct.team?.flagUrl ? (
                     <img src={ct.team.flagUrl} alt={ct.team.name} className="w-10 h-7 object-cover rounded shadow-sm border border-slate-200" />
                   ) : (
-                    <span className="text-2xl">🏳️</span>
+                    <span className="text-2xl">­ƒÅ│´©Å</span>
                   )}
                   <div>
                     <span className="font-bold">{ct.team?.name || ct.teamId}</span>
@@ -284,7 +281,7 @@ export default function CompetitionDetailPage() {
 
           {comp?.format === 'liga' && (
             <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-              <h3 className="font-bold mb-4 text-blue-700">⚡ Generar Fechas Rápidas</h3>
+              <h3 className="font-bold mb-4 text-blue-700">⚠ Generar Fechas Rápidas</h3>
               <p className="text-sm text-slate-500 mb-3">Creá automáticamente múltiples fechas vacías de un solo click.</p>
               <div className="flex gap-3 items-center">
                 <input className="border border-slate-300 rounded-lg px-4 py-2 outline-none w-24 text-center" type="number" min="1" value={matchdaysCount} onChange={e => setMatchdaysCount(e.target.value)} />

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 // Bypass Metro resolution bug by importing pre-bundled JS
 // @ts-ignore
@@ -21,6 +21,73 @@ export default function TournamentChatScreen() {
   const [uploading, setUploading] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  const handleUserActions = (targetUserId: string, targetUsername: string) => {
+    Alert.alert(
+      `Acciones para @${targetUsername}`,
+      '¿Qué deseas hacer con este usuario?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Reportar usuario', 
+          onPress: () => promptReportReason(targetUserId, targetUsername) 
+        },
+        { 
+          text: 'Bloquear usuario', 
+          style: 'destructive',
+          onPress: () => confirmBlockUser(targetUserId, targetUsername) 
+        },
+      ]
+    );
+  };
+
+  const confirmBlockUser = (targetUserId: string, targetUsername: string) => {
+    Alert.alert(
+      'Bloquear usuario',
+      `¿Estás seguro de que deseas bloquear a @${targetUsername}? Ya no verás sus mensajes en el chat de ningún torneo.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Bloquear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.post('/users/block', { blockedId: targetUserId });
+              Alert.alert('Bloqueado', `@${targetUsername} ha sido bloqueado.`);
+              // Instantly filter messages locally
+              setMessages((prev) => prev.filter((m) => m.userId !== targetUserId));
+            } catch (e) {
+              const err = e as Error;
+              Alert.alert('Error', err.message || 'No se pudo bloquear al usuario.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const promptReportReason = (targetUserId: string, targetUsername: string) => {
+    Alert.alert(
+      'Reportar usuario',
+      'Selecciona el motivo del reporte:',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Spam / Mensajes molestos', onPress: () => submitReport(targetUserId, targetUsername, 'Spam / Mensajes molestos') },
+        { text: 'Lenguaje inapropiado / Odio', onPress: () => submitReport(targetUserId, targetUsername, 'Lenguaje inapropiado / Odio') },
+        { text: 'Foto de perfil / Avatar indebido', onPress: () => submitReport(targetUserId, targetUsername, 'Foto de perfil / Avatar indebido') },
+      ]
+    );
+  };
+
+  const submitReport = async (targetUserId: string, targetUsername: string, reason: string) => {
+    try {
+      await api.post('/users/report', { reportedId: targetUserId, reason });
+      Alert.alert('Reporte enviado', `Gracias por informarnos. Revisaremos el comportamiento de @${targetUsername} a la brevedad.`);
+    } catch (e) {
+      const err = e as Error;
+      Alert.alert('Error', err.message || 'No se pudo enviar el reporte.');
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -174,12 +241,16 @@ export default function TournamentChatScreen() {
     return (
       <View style={[styles.messageWrapper, isMe ? styles.messageWrapperMe : styles.messageWrapperOther]}>
         {!isMe && (
-          <View style={styles.avatar}>
+          <TouchableOpacity onPress={() => handleUserActions(item.userId, item.user?.username)} style={styles.avatar}>
             <Text style={styles.avatarText}>{item.user?.username?.charAt(0).toUpperCase() || '?'}</Text>
-          </View>
+          </TouchableOpacity>
         )}
         <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : styles.messageBubbleOther]}>
-          {!isMe && <Text style={styles.messageSender}>{item.user?.username}</Text>}
+          {!isMe && (
+            <TouchableOpacity onPress={() => handleUserActions(item.userId, item.user?.username)}>
+              <Text style={styles.messageSender}>{item.user?.username}</Text>
+            </TouchableOpacity>
+          )}
           
           {item.mediaUrl && item.mediaType === 'image' && (
             <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />

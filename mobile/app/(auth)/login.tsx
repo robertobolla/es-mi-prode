@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Dimensions, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Dimensions, Alert, ScrollView, Modal } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
@@ -15,17 +15,40 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [showForgotModal, setShowForgotModal] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!forgotEmail) {
+      Alert.alert('Error', 'Por favor ingresá tu correo electrónico.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+        redirectTo: 'es-mi-prode://login',
+      });
+      if (error) throw error;
+      Alert.alert(
+        'Correo enviado',
+        'Te enviamos un enlace de recuperación a tu correo electrónico. Al hacer clic en el enlace, iniciarás sesión automáticamente en la aplicación y podrás cambiar tu contraseña en tu Perfil.'
+      );
+      setShowForgotModal(false);
+      setForgotEmail('');
+    } catch (error) {
+      const err = error as Error;
+      Alert.alert('Error', err.message || 'No se pudo enviar el correo de recuperación.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      // Forzamos el uso del esquema nativo para evitar que pida abrir Expo Go en TestFlight
-      const redirectUrl = AuthSession.makeRedirectUri({ 
-        scheme: 'es-mi-prode',
-        path: 'login',
-        preferRelevantScheme: true
-      });
-      console.log('🔗 [OAuth] URL generada por AuthSession:', redirectUrl);
+      // Usamos el esquema nativo que ya sabemos que Google y Supabase aceptan
+      const redirectUrl = 'es-mi-prode://login';
+      console.log('🔗 [DEBUG] Usando esquema nativo para retorno:', redirectUrl);
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -41,75 +64,100 @@ export default function LoginScreen() {
       }
 
       if (data?.url) {
-        console.log('🌐 [OAuth] URL devuelta por Supabase para abrir en navegador:', data.url);
-        
-        // Abrimos el navegador interno de la app. 
-        // Cuando Google termine, redirige a redirectUrl, y WebBrowser lo atrapa y nos devuelve el link.
         const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
         
-        if (res.type === 'success') {
-          console.log('🔗 [OAuth] AuthSession exitoso, atrapó URL:', res.url);
-          const params = new URLSearchParams(res.url.split('#')[1] || '');
-          const access_token = params.get('access_token');
-          const refresh_token = params.get('refresh_token');
+        if (res.type === 'success' && res.url) {
+          const getParam = (url: string, param: string) => {
+            const regex = new RegExp(`[#?&]${param}=([^&]*)`);
+            const match = url.match(regex);
+            return match ? match[1] : null;
+          };
+
+          const access_token = getParam(res.url, 'access_token');
+          const refresh_token = getParam(res.url, 'refresh_token');
 
           if (access_token && refresh_token) {
             const { error: sessionError } = await supabase.auth.setSession({
               access_token,
               refresh_token,
             });
-            if (sessionError) throw sessionError;
             
-            console.log('✅ Sesión establecida correctamente via WebBrowser');
-          } else {
-            console.warn('⚠️ No se encontraron tokens en la URL de retorno');
+            if (sessionError) throw sessionError;
+            // Keep loading = true, let _layout.tsx handle the redirection
+            return;
           }
-        } else {
-          console.log('⚠️ [OAuth] Usuario canceló o cerró el navegador:', res.type);
         }
       }
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Error desconocido');
-    } finally {
+      setLoading(false);
+    } catch (error) {
+      const err = error as Error;
+      console.error('❌ [OAuth] Error crítico:', err);
+      Alert.alert('Error', err.message || 'Error desconocido');
       setLoading(false);
     }
   };
 
-  // Capturar el enlace de retorno si ocurre (Deep Linking)
-  const url = Linking.useURL();
+  const handleAppleLogin = async () => {
+    setLoading(true);
+    try {
+      const redirectUrl = 'es-mi-prode://login';
+      console.log('🔗 [DEBUG] Usando esquema nativo para retorno (Apple):', redirectUrl);
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
 
-  useEffect(() => {
-    if (url) {
-      console.log('🔗 Deep Link detectado:', url);
-      const handleDeepLink = async () => {
-        try {
-          if (url.includes('access_token') && url.includes('refresh_token')) {
-            setLoading(true);
-            const params = new URLSearchParams(url.split('#')[1] || '');
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
+      if (error) {
+        console.error('❌ [OAuth] Error de Supabase (Apple):', error);
+        throw error;
+      }
 
-            if (access_token && refresh_token) {
-              const { error } = await supabase.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-              if (error) throw error;
-              console.log('✅ Sesión establecida correctamente via Deep Link');
-              router.replace('/(tabs)');
-            }
+      if (data?.url) {
+        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        
+        if (res.type === 'success' && res.url) {
+          const getParam = (url: string, param: string) => {
+            const regex = new RegExp(`[#?&]${param}=([^&]*)`);
+            const match = url.match(regex);
+            return match ? match[1] : null;
+          };
+
+          const access_token = getParam(res.url, 'access_token');
+          const refresh_token = getParam(res.url, 'refresh_token');
+
+          if (access_token && refresh_token) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            });
+            
+            if (sessionError) throw sessionError;
+            // Keep loading = true, let _layout.tsx handle the redirection
+            return;
           }
-        } catch (e: any) {
-          Alert.alert('Error de Sesión', e.message);
-        } finally {
-          setLoading(false);
         }
-      };
-      handleDeepLink();
+      }
+      setLoading(false);
+    } catch (error) {
+      const err = error as Error;
+      console.error('❌ [OAuth] Error crítico (Apple):', err);
+      Alert.alert('Error', err.message || 'Error desconocido al conectar con Apple');
+      setLoading(false);
     }
-  }, [url]);
+  };
+
+  // El login se maneja directamente en handleGoogleLogin via WebBrowser.openAuthSessionAsync
 
   const handleEmailLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Por favor ingresá tu correo y contraseña.');
+      return;
+    }
+
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -118,88 +166,173 @@ export default function LoginScreen() {
       });
 
       if (error) throw error;
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    } finally {
+      // Keep loading = true, let _layout.tsx handle the redirection
+      return;
+    } catch (error) {
+      const err = error as Error;
+
+      // Supabase devuelve este mensaje cuando el email no fue confirmado
+      if (err.message.toLowerCase().includes('email not confirmed')) {
+        Alert.alert(
+          'Email sin confirmar',
+          'Tenés que confirmar tu correo electrónico antes de iniciar sesión. ¿Querés que te reenviemos el email de verificación?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Reenviar email',
+              onPress: async () => {
+                const { error: resendError } = await supabase.auth.resend({
+                  type: 'signup',
+                  email,
+                });
+                if (resendError) {
+                  Alert.alert('Error', 'No se pudo reenviar el email. Intentá más tarde.');
+                } else {
+                  Alert.alert('¡Listo!', 'Te reenviamos el email de confirmación. Revisá tu bandeja de entrada.');
+                }
+              },
+            },
+          ]
+        );
+      } else if (err.message.toLowerCase().includes('invalid login credentials')) {
+        Alert.alert('Error', 'Email o contraseña incorrectos.');
+      } else {
+        Alert.alert('Error', err.message);
+      }
+
       setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       {/* Background Decorators */}
       <View style={styles.bgCircle1} pointerEvents="none" />
       <View style={styles.bgCircle2} pointerEvents="none" />
 
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>ES MI PRODE</Text>
-          <Text style={styles.subtitle}>Compite, predice y conviértete en la leyenda de tus amigos.</Text>
-        </View>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>ES MI PRODE</Text>
+            <Text style={styles.subtitle}>Compite, predice y conviértete en la leyenda de tus amigos.</Text>
+          </View>
 
-        <View style={styles.formCard}>
-          <Text style={styles.formTitle}>Iniciar Sesión</Text>
-          
-          <View style={styles.socialContainer}>
+          <View style={styles.formCard}>
+            <Text style={styles.formTitle}>Iniciar Sesión</Text>
+            
+            <View style={styles.socialContainer}>
+              <TouchableOpacity 
+                style={styles.socialBtn} 
+                onPress={handleGoogleLogin} 
+                disabled={loading}
+              >
+                <Ionicons name="logo-google" size={20} color="#F8FAFC" />
+                <Text style={styles.socialBtnText}>{loading ? 'Abriendo...' : 'Google'}</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.socialBtn} disabled={loading} onPress={handleAppleLogin}>
+                <Ionicons name="logo-apple" size={20} color="#F8FAFC" />
+                <Text style={styles.socialBtnText}>Apple</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>o con tu correo</Text>
+              <View style={styles.divider} />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Correo electrónico"
+                placeholderTextColor="#64748B"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Contraseña"
+                placeholderTextColor="#64748B"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+            </View>
+
             <TouchableOpacity 
-              style={styles.socialBtn} 
-              onPress={handleGoogleLogin} 
+              style={styles.forgotBtn} 
+              onPress={() => setShowForgotModal(true)}
               disabled={loading}
             >
-              <Ionicons name="logo-google" size={20} color="#F8FAFC" />
-              <Text style={styles.socialBtnText}>{loading ? 'Abriendo...' : 'Google'}</Text>
+              <Text style={styles.forgotBtnText}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.primaryBtn} 
+              onPress={handleEmailLogin}
+              disabled={loading}
+            >
+              <Text style={styles.primaryBtnText}>{loading ? 'CARGANDO...' : 'ENTRAR AL MUNDO'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.registerLink} onPress={() => router.push('/(auth)/register')}>
+              <Text style={styles.registerText}>¿No tienes cuenta? <Text style={styles.registerTextBold}>Regístrate aquí</Text></Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Modal para restablecer contraseña */}
+      <Modal visible={showForgotModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Restablecer Contraseña</Text>
+              <TouchableOpacity onPress={() => setShowForgotModal(false)}>
+                <Ionicons name="close" size={28} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
             
-            <TouchableOpacity style={styles.socialBtn} disabled={loading} onPress={() => Alert.alert('Apple', 'Proximamente')}>
-              <Ionicons name="logo-apple" size={20} color="#F8FAFC" />
-              <Text style={styles.socialBtnText}>Apple</Text>
-            </TouchableOpacity>
-          </View>
+            <Text style={styles.modalDescription}>
+              Ingresá tu correo electrónico registrado y te enviaremos un enlace para que puedas volver a entrar a tu cuenta.
+            </Text>
 
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>o con tu correo</Text>
-            <View style={styles.divider} />
-          </View>
-
-          <View style={styles.inputContainer}>
             <TextInput
-              style={styles.input}
+              style={styles.modalInput}
               placeholder="Correo electrónico"
               placeholderTextColor="#64748B"
               keyboardType="email-address"
               autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
+              value={forgotEmail}
+              onChangeText={setForgotEmail}
             />
+
+            <TouchableOpacity 
+              style={styles.modalPrimaryBtn} 
+              onPress={handleForgotPassword}
+              disabled={loading}
+            >
+              <Text style={styles.modalPrimaryBtnText}>
+                {loading ? 'ENVIANDO...' : 'ENVIAR ENLACE'}
+              </Text>
+            </TouchableOpacity>
           </View>
-
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="Contraseña"
-              placeholderTextColor="#64748B"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-          </View>
-
-          <TouchableOpacity 
-            style={styles.primaryBtn} 
-            onPress={handleEmailLogin}
-            disabled={loading}
-          >
-            <Text style={styles.primaryBtnText}>{loading ? 'CARGANDO...' : 'ENTRAR AL MUNDO'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.registerLink} onPress={() => Alert.alert('Info', 'Registro pendiente de implementar')}>
-            <Text style={styles.registerText}>¿No tienes cuenta? <Text style={styles.registerTextBold}>Regístrate aquí</Text></Text>
-          </TouchableOpacity>
         </View>
-      </View>
-    </View>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -209,6 +342,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#020617', // Very dark slate (nearly black)
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   bgCircle1: {
     position: 'absolute',
@@ -356,5 +493,68 @@ const styles = StyleSheet.create({
   registerTextBold: {
     color: '#EAB308',
     fontWeight: 'bold',
+  },
+  forgotBtn: {
+    alignSelf: 'flex-end',
+    marginBottom: 20,
+    marginTop: -8,
+  },
+  forgotBtnText: {
+    color: '#EAB308',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalContainer: {
+    backgroundColor: '#0F172A',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#F8FAFC',
+  },
+  modalDescription: {
+    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  modalInput: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    color: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  modalPrimaryBtn: {
+    backgroundColor: '#EAB308',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalPrimaryBtnText: {
+    color: '#422006',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
 });

@@ -3,18 +3,65 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, Activit
 import { router } from 'expo-router';
 import { api } from '../../lib/api';
 import { useQuery } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import Purchases from 'react-native-purchases';
 
 const { width } = Dimensions.get('window');
 
+interface Competition {
+  id: string;
+  name: string;
+  format?: string;
+}
+
+interface Tournament {
+  id: string;
+  name: string;
+  shareCode?: string;
+  status: string;
+  format: string;
+  myRank?: number;
+  myPoints?: number;
+  memberCount?: number;
+  _count?: {
+    members: number;
+  };
+}
+
+interface UserProfile {
+  id: string;
+  supabaseId: string;
+  username: string;
+  email: string;
+  fullName: string | null;
+  isAdmin: boolean;
+}
+
+interface PurchasesProduct {
+  identifier: string;
+  description: string;
+  title: string;
+  price: number;
+  priceString: string;
+  currencyCode: string;
+}
+
+interface CreateTournamentModalProps {
+  visible: boolean;
+  onClose: () => void;
+  competitions: Competition[];
+  onCreated: () => void;
+}
+
 export default function TournamentsScreen() {
   const [showCreate, setShowCreate] = useState(false);
-  const [competitions, setCompetitions] = useState<any[]>([]);
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, ACTIVE, FINISHED
 
-  const { data: tournaments = [], isLoading: loading, refetch: fetchTournaments } = useQuery<any[]>({
+  const { data: tournaments = [], isLoading: loading, refetch: fetchTournaments } = useQuery<Tournament[]>({
     queryKey: ['my_tournaments'],
     queryFn: async () => {
       const data = await api.get('/tournaments/my');
@@ -27,8 +74,9 @@ export default function TournamentsScreen() {
       const comps = await api.get('/competitions');
       setCompetitions(Array.isArray(comps) ? comps : []);
       setShowCreate(true);
-    } catch (e: any) {
-      Alert.alert('Error', 'No se pudieron cargar las competiciones. ¿Está corriendo el backend?');
+    } catch (e) {
+      const err = e as Error;
+      Alert.alert('Error', err.message || 'No se pudieron cargar las competiciones. ¿Está corriendo el backend?');
     }
   };
 
@@ -45,8 +93,9 @@ export default function TournamentsScreen() {
             try {
               await api.delete(`/tournaments/${id}`);
               fetchTournaments();
-            } catch (e: any) {
-              Alert.alert('Error', e.message || 'No se pudo eliminar');
+            } catch (e) {
+              const err = e as Error;
+              Alert.alert('Error', err.message || 'No se pudo eliminar');
             }
           },
         },
@@ -55,12 +104,12 @@ export default function TournamentsScreen() {
   };
 
   // Filter tournaments
-  const filteredTournaments = tournaments.filter((t: any) => {
+  const filteredTournaments = tournaments.filter((t: Tournament) => {
     // Search filter
     if (searchTerm) {
-      const term = searchTerm.toLowerCase();
+      const term = searchTerm.trim().toLowerCase();
       const nameMatch = t.name?.toLowerCase().includes(term);
-      const codeMatch = t.shareCode?.toLowerCase().includes(term);
+      const codeMatch = t.shareCode?.toLowerCase() === term;
       if (!nameMatch && !codeMatch) return false;
     }
     // Status filter
@@ -79,118 +128,164 @@ export default function TournamentsScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Mis Torneos</Text>
-        <TouchableOpacity style={styles.createBtn} onPress={openCreateModal}>
-          <Text style={styles.createBtnText}>+ NUEVO</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Search & Filters */}
-      <View style={styles.filtersArea}>
-        <View style={styles.searchRow}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar por nombre o código..."
-            placeholderTextColor="#475569"
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-          />
+    <KeyboardAvoidingView 
+      style={{ flex: 1, backgroundColor: '#020617' }} 
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Mis Torneos</Text>
+          <TouchableOpacity style={styles.createBtn} onPress={openCreateModal}>
+            <Text style={styles.createBtnText}>+ NUEVO</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.chipRow}>
-          {[
-            { key: 'ALL', label: 'Todos' },
-            { key: 'ACTIVE', label: 'Activos' },
-            { key: 'FINISHED', label: 'Finalizados' },
-          ].map(f => (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.chip, statusFilter === f.key && styles.chipActive]}
-              onPress={() => setStatusFilter(f.key)}
-            >
-              <Text style={[styles.chipText, statusFilter === f.key && styles.chipTextActive]}>
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <View style={styles.countBadge}>
-            <Text style={styles.countText}>{filteredTournaments.length}</Text>
+
+        {/* Search & Filters */}
+        <View style={styles.filtersArea}>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar por nombre o código..."
+              placeholderTextColor="#475569"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+            />
+          </View>
+          <View style={styles.chipRow}>
+            {[
+              { key: 'ALL', label: 'Todos' },
+              { key: 'ACTIVE', label: 'Activos' },
+              { key: 'FINISHED', label: 'Finalizados' },
+            ].map(f => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.chip, statusFilter === f.key && styles.chipActive]}
+                onPress={() => setStatusFilter(f.key)}
+              >
+                <Text style={[styles.chipText, statusFilter === f.key && styles.chipTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{filteredTournaments.length}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {filteredTournaments.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>🏆</Text>
-          <Text style={styles.emptyText}>
-            {searchTerm || statusFilter !== 'ALL' ? 'No se encontraron torneos' : 'Aún no participas en ningún torneo'}
-          </Text>
-          <Text style={styles.emptySubtext}>
-            {searchTerm || statusFilter !== 'ALL' ? 'Probá con otros filtros' : 'Crea uno nuevo o únete con un código'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredTournaments}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <TouchableOpacity 
-              style={styles.card}
-              onPress={() => router.push(`/tournament/${item.id}`)}
-              onLongPress={() => deleteTournament(item.id, item.name)}
-            >
-              <View style={styles.cardRow}>
-                <View style={styles.cardLeft}>
-                  <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
-                  <View style={styles.cardMeta}>
-                    <Text style={styles.cardMetaText}>
-                      {item.memberCount || item._count?.members || 0} 👥
+        {filteredTournaments.length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={styles.emptyIcon}>🏆</Text>
+            <Text style={styles.emptyText}>
+              {searchTerm || statusFilter !== 'ALL' ? 'No se encontraron torneos' : 'Aún no participas en ningún torneo'}
+            </Text>
+            <Text style={styles.emptySubtext}>
+              {searchTerm || statusFilter !== 'ALL' ? 'Probá con otros filtros' : 'Crea uno nuevo o únete con un código'}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredTournaments}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.card}
+                onPress={() => router.push(`/tournament/${item.id}`)}
+                onLongPress={() => deleteTournament(item.id, item.name)}
+              >
+                <View style={styles.cardRow}>
+                  <View style={styles.cardLeft}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
+                    <View style={styles.cardMeta}>
+                      <Text style={styles.cardMetaText}>
+                        {item.memberCount || item._count?.members || 0} 👥
+                      </Text>
+                      <View style={styles.vDivider} />
+                      <Text style={styles.cardMetaText}>
+                        {item.format === 'liga' ? '📅 Liga' : '🏆 Copa'}
+                      </Text>
+                      <View style={styles.vDivider} />
+                      <View style={[styles.statusDot, item.status === 'FINISHED' ? { backgroundColor: '#64748B' } : { backgroundColor: '#22C55E' }]} />
+                      <Text style={styles.cardMetaText}>
+                        {item.status === 'FINISHED' ? 'Finalizado' : 'Activo'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.cardRight}>
+                    <Text style={[styles.rankValue, item.myRank === 1 && styles.gold]}>
+                      {item.myRank ? `#${item.myRank}` : '-'}
                     </Text>
-                    <View style={[styles.statusDot, item.status === 'FINISHED' ? { backgroundColor: '#64748B' } : { backgroundColor: '#22C55E' }]} />
-                    <Text style={styles.cardMetaText}>
-                      {item.status === 'FINISHED' ? 'Finalizado' : 'Activo'}
-                    </Text>
+                    <Text style={styles.ptsValue}>{item.myPoints || 0} pts</Text>
                   </View>
                 </View>
-                <View style={styles.cardRight}>
-                  <Text style={[styles.rankValue, item.myRank === 1 && styles.gold]}>
-                    {item.myRank ? `#${item.myRank}` : '-'}
-                  </Text>
-                  <Text style={styles.ptsValue}>{item.myPoints || 0} pts</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-        />
-      )}
+              </TouchableOpacity>
+            )}
+          />
+        )}
 
-      <CreateTournamentModal
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        competitions={competitions}
-        onCreated={() => {
-          setShowCreate(false);
-          fetchTournaments();
-        }}
-      />
-    </View>
+        <CreateTournamentModal
+          visible={showCreate}
+          onClose={() => setShowCreate(false)}
+          competitions={competitions}
+          onCreated={() => {
+            setShowCreate(false);
+            fetchTournaments();
+          }}
+        />
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
-function CreateTournamentModal({ visible, onClose, competitions, onCreated }: any) {
+function CreateTournamentModal({ visible, onClose, competitions, onCreated }: CreateTournamentModalProps) {
   const [name, setName] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [password, setPassword] = useState('');
   const [selectedCompId, setSelectedCompId] = useState('');
   const [loading, setLoading] = useState(false);
   const [format, setFormat] = useState('copa'); // 'copa' or 'liga'
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [localPrice, setLocalPrice] = useState('$7.99');
+
+  // Fetch local price from App Store / Google Play via RevenueCat
+  useEffect(() => {
+    if (visible) {
+      const isConfigured = ((globalThis as unknown) as { purchasesConfigured?: boolean }).purchasesConfigured === true;
+      if (!isConfigured) {
+        console.log('💳 [RevenueCat] SDK no configurado (probablemente en Expo Go). Usando precio default $7.99.');
+        return;
+      }
+
+      Purchases.getProducts(['com.esmi.prode.crear_torneo'])
+        .then((products: PurchasesProduct[]) => {
+          if (products && products.length > 0) {
+            setLocalPrice(products[0].priceString);
+          }
+        })
+        .catch((err) => {
+          const error = err as Error;
+          console.error('Error fetching IAP product price:', error);
+        });
+    }
+  }, [visible]);
+
+  // Sync profile when visible
+  useEffect(() => {
+    if (visible) {
+      api.get('/users/me')
+        .then((data) => setProfile(data as UserProfile))
+        .catch((err) => {
+          const error = err as Error;
+          console.error('Error fetching profile:', error);
+        });
+    }
+  }, [visible]);
 
   // Sync format with official competition if selected
   useEffect(() => {
     if (selectedCompId) {
-      const comp = competitions.find((c: any) => c.id === selectedCompId);
+      const comp = competitions.find((c: Competition) => c.id === selectedCompId);
       if (comp?.format) {
         setFormat(comp.format);
       }
@@ -225,6 +320,45 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
     }
 
     setLoading(true);
+
+    let transactionId: string | undefined = undefined;
+
+    // Trigger purchase if user is not admin
+    if (profile && !profile.isAdmin) {
+      const isConfigured = ((globalThis as unknown) as { purchasesConfigured?: boolean }).purchasesConfigured === true;
+      
+      if (!isConfigured) {
+        if (__DEV__) {
+          console.log('⚠️ [RevenueCat] Simulando pago en modo desarrollo (Expo Go/Falta Configuración)...');
+          transactionId = 'mock_transaction_expo_go_' + Date.now();
+          Alert.alert('Modo Desarrollo', 'Simulando pago de torneo de forma exitosa ($7.99 USD) para desarrollo en Expo Go.');
+        } else {
+          setLoading(false);
+          Alert.alert('Error de Configuración', 'El sistema de pagos no está configurado correctamente en este dispositivo.');
+          return;
+        }
+      } else {
+        try {
+          console.log('💳 [RevenueCat] Iniciando compra de com.esmi.prode.crear_torneo...');
+          const purchaseResult = await Purchases.purchaseProduct('com.esmi.prode.crear_torneo');
+          transactionId = purchaseResult.transaction.transactionIdentifier;
+          if (!transactionId) {
+            throw new Error('No se recibió un identificador de transacción válido.');
+          }
+          console.log('💳 [RevenueCat] Compra exitosa. ID:', transactionId);
+        } catch (e) {
+          setLoading(false);
+          const purchaseError = e as { userCancelled?: boolean; message?: string };
+          if (purchaseError.userCancelled) {
+            Alert.alert('Creación cancelada', 'Para crear el torneo debes completar el pago.');
+          } else {
+            Alert.alert('Error de pago', purchaseError.message || 'No se pudo procesar el pago.');
+          }
+          return;
+        }
+      }
+    }
+
     try {
       await api.post('/tournaments', {
         name: name.trim(),
@@ -251,6 +385,7 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
           groupBoth: parseInt(ptsGroupBoth) || 5,
           groupOne: parseInt(ptsGroupOne) || 2,
         },
+        paymentTransactionId: transactionId,
       });
       const successMsg = selectedCompId 
         ? 'Torneo creado. ¡Invitá a tus amigos para empezar a predecir!'
@@ -265,8 +400,9 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
       setPredictMvp(false); setPredictTopScorer(false); setPredictGoalkeeper(false); setPredictGroups(true);
       setPtsExact('5'); setPtsResult('3'); setPtsMatchdayWinner('3'); setPtsMvp('10'); setPtsTopScorer('10'); setPtsGoalkeeper('10');
       setPtsGroupExact('10'); setPtsGroupBoth('5'); setPtsGroupOne('2');
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'No se pudo crear el torneo');
+    } catch (e) {
+      const err = e as Error;
+      Alert.alert('Error', err.message || 'No se pudo crear el torneo');
     } finally {
       setLoading(false);
     }
@@ -286,6 +422,15 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
                 <Text style={modalStyles.closeBtn}>✕</Text>
               </TouchableOpacity>
             </View>
+
+            {profile && !profile.isAdmin && (
+              <View style={modalStyles.iapNoticeCard}>
+                <Text style={modalStyles.iapNoticeTitle}>✨ Torneo Premium</Text>
+                <Text style={modalStyles.iapNoticeDescription}>
+                  La creación de torneos tiene un valor de <Text style={{ fontWeight: 'bold', color: '#EAB308' }}>{localPrice}</Text>. El pago es por única vez y te permite jugar con tus amigos sin límites de participantes ni de predicciones.
+                </Text>
+              </View>
+            )}
 
             {/* ── DATOS BASE ── */}
             <Text style={modalStyles.sectionHeader}>📋 DATOS BASE</Text>
@@ -325,28 +470,28 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
             </View>
 
             {!selectedCompId && (
-              <>
-                <Text style={modalStyles.label}>Formato del Torneo</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <View style={{ marginTop: 10, padding: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' }}>
+                <Text style={[modalStyles.sectionHeader, { marginTop: 0, borderTopWidth: 0, paddingTop: 0 }]}>🏆 FORMATO DEL TORNEO</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
                   <TouchableOpacity
                     style={[modalStyles.formatBtn, format === 'copa' && modalStyles.formatBtnActive]}
                     onPress={() => setFormat('copa')}
                   >
-                    <Text style={[modalStyles.formatBtnText, format === 'copa' && modalStyles.formatBtnTextActive]}>🏆 Copa</Text>
+                    <Text style={[modalStyles.formatBtnText, format === 'copa' && modalStyles.formatBtnTextActive]}>🏆 COPA</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[modalStyles.formatBtn, format === 'liga' && modalStyles.formatBtnActive]}
                     onPress={() => setFormat('liga')}
                   >
-                    <Text style={[modalStyles.formatBtnText, format === 'liga' && modalStyles.formatBtnTextActive]}>📅 Liga</Text>
+                    <Text style={[modalStyles.formatBtnText, format === 'liga' && modalStyles.formatBtnTextActive]}>📅 LIGA</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6, marginBottom: 12 }}>
+                <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 10, lineHeight: 18, textAlign: 'center' }}>
                   {format === 'copa' 
-                    ? 'Fase de grupos y eliminación directa.' 
-                    : 'Todos contra todos por puntos. Se premiará al ganador de cada fecha.'}
+                    ? 'Ideal para torneos cortos con eliminación directa.' 
+                    : 'Todos contra todos. Los participantes suman puntos en cada fecha.'}
                 </Text>
-              </>
+              </View>
             )}
 
             <View style={modalStyles.switchRow}>
@@ -480,7 +625,9 @@ function CreateTournamentModal({ visible, onClose, competitions, onCreated }: an
               {loading ? (
                 <ActivityIndicator color="#422006" />
               ) : (
-                <Text style={modalStyles.createBtnText}>CREAR TORNEO</Text>
+                <Text style={modalStyles.createBtnText}>
+                  {profile && !profile.isAdmin ? `PAGAR Y CREAR TORNEO (${localPrice})` : 'CREAR TORNEO'}
+                </Text>
               )}
             </TouchableOpacity>
           </ScrollView>
@@ -645,6 +792,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  vDivider: {
+    width: 1,
+    height: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: 2,
+  },
   cardRight: {
     alignItems: 'center',
     paddingLeft: 12,
@@ -678,6 +831,26 @@ const modalStyles = StyleSheet.create({
     maxHeight: '85%',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
+  },
+  iapNoticeCard: {
+    backgroundColor: 'rgba(234, 179, 8, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.25)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  iapNoticeTitle: {
+    color: '#EAB308',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  iapNoticeDescription: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    lineHeight: 18,
   },
   headerRow: {
     flexDirection: 'row',

@@ -16,6 +16,8 @@ model User {
   gender            String?
   avatarUrl         String?
   country           String?
+  city              String?
+  state             String?
   dob               DateTime?
   bio               String?
   createdAt         DateTime @default(now())
@@ -26,6 +28,7 @@ model User {
   notifyRanking     Boolean  @default(true)
   notifyTournaments Boolean  @default(true)
   pushToken         String?
+  lastRankNotificationAt DateTime?
   
   // Stats
   tournamentsPlayed Int      @default(0)
@@ -48,6 +51,11 @@ model User {
   badges             UserBadge[]
   chatMessages       ChatMessage[]
   matchdayWins       MatchdayWinner[]
+
+  // UGC Moderation (Blocking & Reporting)
+  blockedUserIds     String[] @default([])
+  reportsSent        UserReport[] @relation("reporter")
+  reportsReceived    UserReport[] @relation("reported")
 }
 
 model Competition {
@@ -62,6 +70,13 @@ model Competition {
   officialTopScorerId   String?
   officialGoalkeeperId  String?
 
+  // Configuration
+  predictMvp        Boolean  @default(false)
+  predictTopScorer  Boolean  @default(false)
+  predictGoalkeeper Boolean  @default(false)
+  predictGroups     Boolean  @default(true)
+  pointsSystem      Json?
+
   phases      Phase[]
   teams       CompetitionTeam[]
   tournaments Tournament[]
@@ -73,6 +88,7 @@ model Team {
   name      String
   flagUrl   String?
   competitions CompetitionTeam[]
+  players   Player[]
 }
 
 model CompetitionTeam {
@@ -170,6 +186,7 @@ model Tournament {
   pointsSystem    Json     
   status          String   @default("OPEN") // OPEN, CLOSED, IN_PROGRESS, FINISHED
   shareCode       String   @unique
+  paymentTransactionId String? @unique
 
   competition     Competition? @relation(fields: [competitionId], references: [id])
   creator         User        @relation(fields: [creatorId], references: [id])
@@ -296,6 +313,9 @@ model OutrightPrediction {
   goalkeeperId  String?
 
   user          User     @relation(fields: [userId], references: [id])
+  mvp           Player?  @relation("mvpPlayer", fields: [mvpId], references: [id])
+  topScorer     Player?  @relation("topScorerPlayer", fields: [topScorerId], references: [id])
+  goalkeeper    Player?  @relation("goalkeeperPlayer", fields: [goalkeeperId], references: [id])
   
   @@unique([userId, competitionId])
 }
@@ -353,4 +373,31 @@ model MatchdayWinner {
   phase           Phase?       @relation(fields: [phaseId], references: [id])
 
   @@unique([tournamentId, matchdayNumber, userId])
+}
+
+model Player {
+  id            String   @id @default(uuid())
+  firstName     String
+  lastName      String
+  position      String   // "GK" | "DEF" | "MID" | "FWD"
+  teamId        String
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  mvpPredictions        OutrightPrediction[] @relation("mvpPlayer")
+  topScorerPredictions  OutrightPrediction[] @relation("topScorerPlayer")
+  goalkeeperPredictions OutrightPrediction[] @relation("goalkeeperPlayer")
+
+  @@index([lastName, firstName])
+}
+
+model UserReport {
+  id          String   @id @default(uuid())
+  reporterId  String
+  reportedId  String
+  reason      String
+  createdAt   DateTime @default(now())
+
+  reporter    User     @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported    User     @relation("reported", fields: [reportedId], references: [id], onDelete: Cascade)
 }

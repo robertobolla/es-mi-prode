@@ -1,37 +1,100 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, TextInput } from 'react-native';
-import { router } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { api } from '../../lib/api';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Notifications from 'expo-notifications';
+import * as Haptics from 'expo-haptics';
+import { registerForPushNotificationsAsync } from '../../lib/notifications';
+
+interface AvailableTournament {
+  id: string;
+  name: string;
+  shareCode: string;
+  isCustom: boolean;
+  isPublic: boolean;
+  _count: {
+    members: number;
+  };
+}
 
 const { width } = Dimensions.get('window');
 
+// Gravatar URL from email (MD5 hash)
+function getGravatarUrl(email: string, size = 200) {
+  const hash = email?.trim().toLowerCase() || '';
+  return `https://www.gravatar.com/avatar/${simpleHash(hash)}?s=${size}&d=identicon`;
+}
+
+function simpleHash(str: string) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16);
+}
+
 export default function HomeScreen() {
   const [profile, setProfile] = useState<any>(null);
-  const [tournaments, setTournaments] = useState<any[]>([]);
-  const [availableTournaments, setAvailableTournaments] = useState<any[]>([]);
+  const [availableTournaments, setAvailableTournaments] = useState<AvailableTournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingAvailable, setLoadingAvailable] = useState(false);
 
-  // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState('ALL'); // ALL, OFFICIAL, CUSTOM
   const [minPlayers, setMinPlayers] = useState('');
   const [maxPlayers, setMaxPlayers] = useState('');
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
 
   useEffect(() => {
-    fetchData();
-    fetchAvailable();
+    checkNotificationStatus();
   }, []);
+
+  const checkNotificationStatus = async () => {
+    try {
+      const { status } = await Notifications.getPermissionsAsync();
+      console.log('🔔 [Notifications] Estado actual del permiso en el dispositivo:', status);
+      
+      // En Expo Go o simuladores el permiso suele estar pre-aprobado a nivel de sistema.
+      // Cambiá esta variable a `true` si querés forzar la visualización de la tarjeta para pruebas.
+      const forceShowForTesting = false; 
+
+      if (status !== 'granted' || forceShowForTesting) {
+        setShowNotificationPrompt(true);
+      }
+    } catch (e) {
+      console.warn('Error checking notifications permission', e);
+    }
+  };
+
+  const handleRequestPush = async () => {
+    setShowNotificationPrompt(false);
+    try {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        await api.patch('/users/me', { pushToken: token });
+        console.log('📱 [Push] Token guardado en DB');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
+    } catch (e) {
+      console.log('Error requesting push permission', e);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+      fetchAvailable();
+    }, [])
+  );
 
   const fetchData = async () => {
     try {
-      const [profileData, tournamentsData] = await Promise.all([
-        api.get('/users/me').catch(() => null),
-        api.get('/tournaments/my').catch(() => []),
-      ]);
+      const profileData = await api.get('/users/me').catch(() => null);
       setProfile(profileData);
-      setTournaments(Array.isArray(tournamentsData) ? tournamentsData : []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -42,7 +105,7 @@ export default function HomeScreen() {
   const fetchAvailable = async () => {
     setLoadingAvailable(true);
     try {
-      let url = `/tournaments/available?name=${searchTerm}`;
+      let url = `/tournaments/available?name=${encodeURIComponent(searchTerm)}`;
       if (filterType === 'OFFICIAL') url += '&isCustom=false';
       if (filterType === 'CUSTOM') url += '&isCustom=true';
       if (minPlayers) url += `&minPlayers=${minPlayers}`;
@@ -61,16 +124,7 @@ export default function HomeScreen() {
     fetchAvailable();
   };
 
-  const joinTournament = async (shareCode: string) => {
-    try {
-      await api.post('/tournaments/join', { shareCode });
-      // Refresh data
-      fetchData();
-      fetchAvailable();
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Error al unirse al torneo');
-    }
-  };
+  // Removed direct joinTournament function in favor of dedicated /join/[code] routing
 
   if (loading) {
     return (
@@ -83,167 +137,188 @@ export default function HomeScreen() {
   const displayName = profile?.fullName?.split(' ')[0] || profile?.username || 'Leyenda';
   const initial = displayName.charAt(0).toUpperCase();
 
+  const avatarSource = profile?.avatarUrl
+    ? { uri: profile.avatarUrl }
+    : { uri: getGravatarUrl(profile?.email || '') };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      
-      {/* Premium Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hola, {displayName} 👋</Text>
-          <Text style={styles.pointsLabel}>PUNTUACIÓN GLOBAL</Text>
-          <Text style={styles.points}>{profile?.historicalPoints || 0} <Text style={styles.pointsSpan}>PTS</Text></Text>
-        </View>
-        <View style={styles.avatarGlass}>
-          <Text style={styles.avatarText}>{initial}</Text>
-        </View>
-      </View>
-
-      {/* Active Tournaments (Real Data) */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>TUS TORNEOS ACTIVOS</Text>
+    <KeyboardAvoidingView 
+      style={{ flex: 1, backgroundColor: '#020617' }} 
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
         
-        {tournaments.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>🏆</Text>
-            <Text style={styles.emptyText}>Aún no participas en ningún torneo</Text>
-            <TouchableOpacity 
-              style={styles.goToTournamentsBtn}
-              onPress={() => router.push('/(tabs)/tournaments')}
+        {/* Premium Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>Hola, {displayName} 👋</Text>
+            <Text style={styles.pointsLabel}>PUNTUACIÓN GLOBAL</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+              <Text style={styles.points}>
+                {profile?.historicalPoints || 0} <Text style={styles.pointsSpan}>PTS</Text>
+              </Text>
+              {profile?.globalRank !== undefined && (
+                <Text style={styles.globalRankText}>#{profile.globalRank}</Text>
+              )}
+            </View>
+          </View>
+          <TouchableOpacity 
+            style={styles.avatarGlass}
+            onPress={() => router.push('/(tabs)/profile')}
+          >
+            {profile?.avatarUrl || profile?.email ? (
+              <Image source={avatarSource} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{initial}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Notification Opt-In Banner */}
+        {showNotificationPrompt && (
+          <View style={styles.notificationBanner}>
+            <LinearGradient
+              colors={['rgba(234, 179, 8, 0.15)', 'rgba(234, 179, 8, 0.05)']}
+              style={styles.notificationBannerGradient}
             >
-              <Text style={styles.goToTournamentsBtnText}>IR A TORNEOS</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.carousel}>
-            {tournaments.map((t: any, index: number) => (
-              <TouchableOpacity 
-                key={t.id} 
-                style={[styles.tournamentCard, index > 0 && { marginLeft: 16 }]}
-                onPress={() => router.push(`/tournament/${t.id}`)}
-              >
-                {t.myRank && (
-                  <View style={[styles.tBadge, t.myRank > 3 && { backgroundColor: '#475569' }]}>
-                    <Text style={styles.tBadgeText}>
-                      {t.myRank === 1 ? '🏆 1ro' : t.myRank === 2 ? '🥈 2do' : t.myRank === 3 ? '🥉 3ro' : `${t.myRank}to`}
-                    </Text>
-                  </View>
-                )}
-                <Text style={styles.tournamentName}>{t.name}</Text>
-                <View style={styles.tStatsDivider} />
-                <Text style={styles.tournamentScore}>Tus Puntos: <Text style={styles.goldText}>{t.myPoints || 0}</Text></Text>
-                <Text style={styles.tournamentInfo}>Participantes: {t.memberCount || 0}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-      </View>
-
-      {/* EXPLORE SECTION */}
-      <View style={[styles.section, { marginTop: 24, paddingBottom: 40 }]}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>EXPLORAR TORNEOS</Text>
-          <TouchableOpacity onPress={() => setShowFilters(!showFilters)}>
-            <Text style={styles.filterToggleText}>{showFilters ? 'Ocultar Filtros' : 'Filtros'}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchInputWrapper}>
-            <Text style={{ marginRight: 8 }}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Buscar por nombre..."
-              placeholderTextColor="#64748B"
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-              onSubmitEditing={handleSearch}
-            />
-          </View>
-          <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
-            <Text style={styles.searchBtnText}>BUSCAR</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Filters Panel */}
-        {showFilters && (
-          <View style={styles.filtersPanel}>
-            <Text style={styles.filterLabel}>Tipo de Competición</Text>
-            <View style={styles.filterChips}>
-              {['ALL', 'OFFICIAL', 'CUSTOM'].map(type => (
-                <TouchableOpacity 
-                  key={type}
-                  style={[styles.filterChip, filterType === type && styles.activeChip]}
-                  onPress={() => setFilterType(type)}
-                >
-                  <Text style={[styles.filterChipText, filterType === type && styles.activeChipText]}>
-                    {type === 'ALL' ? 'Todos' : type === 'OFFICIAL' ? 'Oficiales' : 'Personalizados'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.playersFilterRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.filterLabel}>Mín. Jugadores</Text>
-                <TextInput
-                  style={styles.filterInput}
-                  placeholder="Ej: 5"
-                  placeholderTextColor="#64748B"
-                  keyboardType="numeric"
-                  value={minPlayers}
-                  onChangeText={setMinPlayers}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.filterLabel}>Máx. Jugadores</Text>
-                <TextInput
-                  style={styles.filterInput}
-                  placeholder="Ej: 50"
-                  placeholderTextColor="#64748B"
-                  keyboardType="numeric"
-                  value={maxPlayers}
-                  onChangeText={setMaxPlayers}
-                />
-              </View>
-            </View>
-            
-            <TouchableOpacity style={styles.applyFiltersBtn} onPress={fetchAvailable}>
-              <Text style={styles.applyFiltersBtnText}>APLICAR FILTROS</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Available List */}
-        {loadingAvailable ? (
-          <ActivityIndicator color="#EAB308" style={{ marginTop: 20 }} />
-        ) : (availableTournaments?.length || 0) === 0 ? (
-          <View style={styles.noResultsCard}>
-            <Text style={styles.noResultsText}>No se encontraron torneos disponibles</Text>
-          </View>
-        ) : (
-          <View style={styles.availableList}>
-            {availableTournaments?.map((t: any) => (
-              <View key={t.id} style={styles.availableItem}>
+              <View style={styles.notificationBannerHeader}>
+                <View style={styles.notificationIconBg}>
+                  <Text style={{ fontSize: 20 }}>🔔</Text>
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.availableName}>{t.name}</Text>
-                  <Text style={styles.availableInfo}>
-                    {t.isCustom ? '👤 Personalizado' : '🏅 Oficial'} • {t._count.members} jugadores
+                  <Text style={styles.notificationBannerTitle}>¡No te pierdas de nada!</Text>
+                  <Text style={styles.notificationBannerDesc}>
+                    Activá las alertas para recordar tus pronósticos antes de cada partido y no perder puntos.
                   </Text>
                 </View>
+              </View>
+              <View style={styles.notificationBannerButtons}>
                 <TouchableOpacity 
-                  style={styles.joinBtn}
-                  onPress={() => joinTournament(t.shareCode)}
+                  style={styles.notificationCancelBtn}
+                  onPress={() => setShowNotificationPrompt(false)}
                 >
-                  <Text style={styles.joinBtnText}>UNIRME</Text>
+                  <Text style={styles.notificationCancelBtnText}>Más tarde</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.notificationAcceptBtn}
+                  onPress={handleRequestPush}
+                >
+                  <Text style={styles.notificationAcceptBtnText}>Activar</Text>
                 </TouchableOpacity>
               </View>
-            ))}
+            </LinearGradient>
           </View>
         )}
-      </View>
 
-    </ScrollView>
+
+
+        {/* EXPLORE SECTION */}
+        <View style={[styles.section, { marginTop: 24, paddingBottom: 40 }]}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>EXPLORAR TORNEOS</Text>
+            <TouchableOpacity onPress={() => setShowFilters(!showFilters)}>
+              <Text style={styles.filterToggleText}>{showFilters ? 'Ocultar Filtros' : 'Filtros'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputWrapper}>
+              <Text style={{ marginRight: 8 }}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Buscar por nombre..."
+                placeholderTextColor="#64748B"
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                onSubmitEditing={handleSearch}
+              />
+            </View>
+            <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
+              <Text style={styles.searchBtnText}>BUSCAR</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Filters Panel */}
+          {showFilters && (
+            <View style={styles.filtersPanel}>
+              <Text style={styles.filterLabel}>Tipo de Competición</Text>
+              <View style={styles.filterChips}>
+                {['ALL', 'OFFICIAL', 'CUSTOM'].map(type => (
+                  <TouchableOpacity 
+                    key={type}
+                    style={[styles.filterChip, filterType === type && styles.activeChip]}
+                    onPress={() => setFilterType(type)}
+                  >
+                    <Text style={[styles.filterChipText, filterType === type && styles.activeChipText]}>
+                      {type === 'ALL' ? 'Todos' : type === 'OFFICIAL' ? 'Oficiales' : 'Personalizados'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.playersFilterRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.filterLabel}>Mín. Jugadores</Text>
+                  <TextInput
+                    style={styles.filterInput}
+                    placeholder="Ej: 5"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    value={minPlayers}
+                    onChangeText={setMinPlayers}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.filterLabel}>Máx. Jugadores</Text>
+                  <TextInput
+                    style={styles.filterInput}
+                    placeholder="Ej: 50"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    value={maxPlayers}
+                    onChangeText={setMaxPlayers}
+                  />
+                </View>
+              </View>
+              
+              <TouchableOpacity style={styles.applyFiltersBtn} onPress={fetchAvailable}>
+                <Text style={styles.applyFiltersBtnText}>APLICAR FILTROS</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Available List */}
+          {loadingAvailable ? (
+            <ActivityIndicator color="#EAB308" style={{ marginTop: 20 }} />
+          ) : (availableTournaments?.length || 0) === 0 ? (
+            <View style={styles.noResultsCard}>
+              <Text style={styles.noResultsText}>No se encontraron torneos disponibles</Text>
+            </View>
+          ) : (
+            <View style={styles.availableList}>
+              {availableTournaments?.map((t: AvailableTournament) => (
+                <View key={t.id} style={styles.availableItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.availableName}>{t.name}</Text>
+                    <Text style={styles.availableInfo}>
+                      {t.isCustom ? '👤 Personalizado' : '🏅 Oficial'} • {t._count.members} jugadores • {t.isPublic ? '🔓 Público' : '🔒 Privado'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.joinBtn}
+                    onPress={() => router.push(`/join/${t.shareCode}`)}
+                  >
+                    <Text style={styles.joinBtnText}>UNIRME</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -287,6 +362,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#EAB308',
   },
+  globalRankText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#94A3B8',
+    marginLeft: 8,
+  },
   avatarGlass: {
     width: 60,
     height: 60,
@@ -302,6 +383,11 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
   },
+  avatarImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+  },
   section: {
     padding: 24,
     paddingBottom: 0,
@@ -313,91 +399,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 16,
   },
-  emptyCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
-    borderRadius: 24,
-    padding: 32,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#94A3B8',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  goToTournamentsBtn: {
-    backgroundColor: '#EAB308',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  goToTournamentsBtnText: {
-    color: '#422006',
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  carousel: {
-    overflow: 'visible',
-  },
-  tournamentCard: {
-    width: width * 0.7,
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  tBadge: {
-    position: 'absolute',
-    top: -10,
-    right: 20,
-    backgroundColor: '#EAB308',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    shadowColor: '#EAB308',
-    shadowOpacity: 0.5,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  tBadgeText: {
-    color: '#422006',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  tournamentName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
-    marginBottom: 12,
-    paddingTop: 8,
-  },
-  tStatsDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 12,
-  },
-  tournamentScore: {
-    color: '#94A3B8',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  goldText: {
-    color: '#EAB308',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  tournamentInfo: {
-    color: '#64748B',
-    fontSize: 12,
-  },
+
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -551,5 +553,71 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  notificationBanner: {
+    marginHorizontal: 24,
+    marginTop: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.25)',
+  },
+  notificationBannerGradient: {
+    padding: 18,
+  },
+  notificationBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notificationIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(234, 179, 8, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationBannerTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  notificationBannerDesc: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  notificationBannerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 14,
+  },
+  notificationCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  notificationCancelBtnText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  notificationAcceptBtn: {
+    backgroundColor: '#EAB308',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#EAB308',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  notificationAcceptBtnText: {
+    color: '#422006',
+    fontSize: 12,
+    fontWeight: '900',
   },
 });

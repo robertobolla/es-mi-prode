@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import CompetitionDetail from './CompetitionDetail';
+import { apiFetch } from '../../lib/api';
 
 interface Competition {
   id: string;
@@ -14,8 +14,11 @@ interface Competition {
   _count?: { tournaments: number; phases: number; teams: number };
 }
 
-export default function CompetitionsPage() {
+function CompetitionsPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const selectedId = searchParams.get('id');
+
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -29,7 +32,7 @@ export default function CompetitionsPage() {
 
   const fetchCompetitions = async () => {
     try {
-      const res = await fetch(`${API_URL}/competitions`);
+      const res = await apiFetch('/competitions');
       const data = await res.json();
       setCompetitions(data);
     } catch (e) {
@@ -43,10 +46,9 @@ export default function CompetitionsPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch(`${API_URL}/competitions`, {
+      const res = await apiFetch('/competitions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), format: newFormat }),
+        body: { name: newName.trim(), format: newFormat },
       });
       if (!res.ok) throw new Error('Failed');
       setNewName('');
@@ -63,7 +65,7 @@ export default function CompetitionsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('¿Seguro que querés eliminar esta competencia?')) return;
     try {
-      await fetch(`${API_URL}/competitions/${id}`, { method: 'DELETE' });
+      await apiFetch(`/competitions/${id}`, { method: 'DELETE' });
       fetchCompetitions();
     } catch (e) {
       alert('Error deleting competition');
@@ -72,16 +74,34 @@ export default function CompetitionsPage() {
 
   const toggleActive = async (comp: Competition) => {
     try {
-      await fetch(`${API_URL}/competitions/${comp.id}`, {
+      await apiFetch(`/competitions/${comp.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: !comp.active }),
+        body: { active: !comp.active },
       });
       fetchCompetitions();
     } catch (e) {
       alert('Error updating competition');
     }
   };
+
+  const handleDuplicate = async (id: string) => {
+    if (!confirm('¿Seguro que querés duplicar esta competencia (fases, grupos y partidos)?')) return;
+    try {
+      const res = await apiFetch(`/competitions/${id}/duplicate`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('Failed');
+      alert('Competencia duplicada con éxito');
+      fetchCompetitions();
+    } catch (e) {
+      alert('Error duplicando competencia');
+    }
+  };
+
+  // If a competition is selected, show the detail view
+  if (selectedId) {
+    return <CompetitionDetail />;
+  }
 
   return (
     <div className="p-10">
@@ -157,7 +177,7 @@ export default function CompetitionsPage() {
             <div
               key={comp.id}
               className="bg-white rounded-xl border border-slate-200 p-6 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => router.push(`/competitions/${comp.id}`)}
+              onClick={() => router.push(`/competitions?id=${comp.id}`)}
             >
               <div className="flex items-center gap-4">
                 <div className={`w-3 h-3 rounded-full ${comp.active ? 'bg-green-500' : 'bg-slate-300'}`} />
@@ -176,7 +196,10 @@ export default function CompetitionsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => toggleActive(comp)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleActive(comp);
+                  }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border ${
                     comp.active
                       ? 'border-orange-300 text-orange-600 hover:bg-orange-50'
@@ -186,7 +209,19 @@ export default function CompetitionsPage() {
                   {comp.active ? 'Desactivar' : 'Activar'}
                 </button>
                 <button
-                  onClick={() => handleDelete(comp.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDuplicate(comp.id);
+                  }}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-blue-300 text-blue-600 hover:bg-blue-50"
+                >
+                  Duplicar
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(comp.id);
+                  }}
                   className="px-4 py-2 rounded-lg text-sm font-medium border border-red-300 text-red-600 hover:bg-red-50"
                 >
                   Eliminar
@@ -197,5 +232,13 @@ export default function CompetitionsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CompetitionsPage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-slate-400">Cargando...</div>}>
+      <CompetitionsPageInner />
+    </Suspense>
   );
 }

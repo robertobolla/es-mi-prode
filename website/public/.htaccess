@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Si el archivo solicitado no existe como directorio
+RewriteCond %{REQUEST_FILENAME} !-d
+# Y existe un archivo .html correspondiente en la raíz
+RewriteCond %{DOCUMENT_ROOT}/$1.html -f
+# Reescribir internamente la petición agregando la extensión .html
+RewriteRule ^(.*?)/?$ $1.html [L]

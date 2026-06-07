@@ -14,13 +14,56 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // payload.sub is the Supabase User ID
-    const user = await this.prisma.user.findUnique({
+    console.log('🔑 [JwtStrategy] Validando payload:', { sub: payload.sub, email: payload.email });
+    // 1. Intentar buscar por Supabase ID (lo normal)
+    let user = await this.prisma.user.findUnique({
       where: { supabaseId: payload.sub },
     });
     
-    // If not found, they might be authenticated in Supabase but not fully registered in our DB
-    // Or we can auto-create them. For now, we just return the payload.
-    return { userId: payload.sub, email: payload.email, ...user };
+    // 2. Si no existe por ID, intentar buscar por EMAIL (para recuperar cuentas desincronizadas)
+    if (!user && payload.email) {
+      user = await this.prisma.user.findUnique({
+        where: { email: payload.email },
+      });
+      
+      if (user) {
+        // Si lo encontramos por email, actualizamos su supabaseId para sincronizarlo
+        console.log(`[JwtStrategy] Sincronizando usuario ${user.email} con nuevo Supabase ID`);
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { supabaseId: payload.sub },
+        });
+      }
+    }
+    
+    // 3. Si aún no existe, intentamos el AUTO-REGISTRO DE EMERGENCIA
+    if (!user) {
+      const username = payload.email.split('@')[0] + Math.floor(Math.random() * 1000);
+      try {
+        console.log(`[JwtStrategy] Creando nuevo usuario para ${payload.email}`);
+        user = await this.prisma.user.create({
+          data: {
+            supabaseId: payload.sub,
+            email: payload.email,
+            username: username,
+            fullName: 'Nueva Leyenda',
+            isAdmin: payload.email === 'bblasivan@gmail.com' || payload.email === 'robertobolla9@gmail.com',
+          }
+        });
+      } catch (e: any) {
+        console.error('❌ [JwtStrategy] ERROR CRÍTICO EN AUTO-REGISTRO:', {
+          message: e.message,
+          code: e.code,
+          meta: e.meta,
+          stack: e.stack,
+          payloadSub: payload.sub,
+          payloadEmail: payload.email
+        });
+        // Si falló la creación, devolvemos un objeto que indique el fallo pero no rompa el guard
+        return { id: undefined, userId: payload.sub, email: payload.email, notRegistered: true };
+      }
+    }
+    
+    return { ...user, userId: payload.sub };
   }
 }

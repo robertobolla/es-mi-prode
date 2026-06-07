@@ -1,0 +1,18 @@
+DirectoryIndex index.html
+
+RewriteEngine On
+RewriteBase /
+
+# 1. Si el archivo solicitado existe, servirlo directamente
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# 2. Si se solicita un directorio con barra al final (ej: /competitions/) y existe index.html en él, servirlo
+RewriteCond %{DOCUMENT_ROOT}/$1/index.html -f
+RewriteRule ^(.*)/$ $1/index.html [L]
+
+# 3. Si se solicita una ruta sin barra al final (ej: /competitions) y existe el directorio con index.html,
+# redirigir con barra al final (301) para mantener consistencia con Next.js trailingSlash: true
+RewriteCond %{DOCUMENT_ROOT}/$1/index.html -f
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^([^/]+)$ /$1/ [R=301,L]

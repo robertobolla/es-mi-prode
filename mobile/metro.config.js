@@ -7,6 +7,6 @@ const config = getDefaultConfig(__dirname);
 config.resolver.sourceExts.push('mjs', 'cjs');
 
 // Para manejar mejor las exportaciones de ESM en módulos de Node.
-config.resolver.unstable_enablePackageExports = true;
+config.resolver.unstable_enablePackageExports = false;
 
 module.exports = config;
