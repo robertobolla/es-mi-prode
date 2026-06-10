@@ -117,36 +117,10 @@ export default function OnboardingScreen() {
       }
     });
   }, []);
+
   const handleOnboard = async () => {
     if (!username || username.trim().length < 3) {
       Alert.alert('Error', 'El nombre de usuario debe tener al menos 3 caracteres.');
-      return;
-    }
-
-    const dVal = parseInt(day, 10);
-    const mVal = parseInt(month, 10);
-    const yVal = parseInt(year, 10);
-
-    if (isNaN(dVal) || isNaN(mVal) || isNaN(yVal)) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
-      return;
-    }
-
-    if (dVal < 1 || dVal > 31 || mVal < 1 || mVal > 12 || yVal < 1900 || yVal > new Date().getFullYear()) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
-      return;
-    }
-
-    // Pad values properly to ensure valid date parsing (e.g. YYYY-MM-DD)
-    const paddedDay = day.trim().padStart(2, '0');
-    const paddedMonth = month.trim().padStart(2, '0');
-    const paddedYear = year.trim();
-    const dob = `${paddedYear}-${paddedMonth}-${paddedDay}`;
-    
-    // Check if the formatted date is actually a valid calendar date
-    const parsedDate = new Date(dob);
-    if (isNaN(parsedDate.getTime())) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
       return;
     }
 
@@ -156,11 +130,6 @@ export default function OnboardingScreen() {
       await api.post('/users/onboard', { 
         username: username.trim(),
         fullName: fullNameCombined || undefined,
-        country: country.name,
-        city: city.trim() || undefined,
-        state: stateName.trim() || undefined,
-        dob,
-        gender,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setShowTutorial(true);
@@ -324,101 +293,6 @@ export default function OnboardingScreen() {
               placeholderTextColor="#64748B"
               value={lastName}
               onChangeText={setLastName}
-            />
-          </View>
-
-          <View style={styles.formSection}>
-            <Text style={styles.sectionLabel}>GÉNERO</Text>
-            <View style={styles.genderRow}>
-              {GENDERS.map((g) => (
-                <TouchableOpacity 
-                  key={g.id}
-                  style={[styles.genderCard, gender === g.id && styles.genderCardActive]}
-                  onPress={() => setGender(g.id)}
-                >
-                  <Ionicons 
-                    name={g.icon as 'male' | 'female' | 'help-circle'} 
-                    size={24} 
-                    color={gender === g.id ? '#EAB308' : '#94A3B8'} 
-                  />
-                  <Text style={[styles.genderLabel, gender === g.id && styles.genderLabelActive]}>
-                    {g.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.formSection}>
-            <Text style={styles.sectionLabel}>NACIMIENTO Y PAÍS</Text>
-            <View style={styles.row}>
-              <TouchableOpacity 
-                style={styles.countrySelector}
-                onPress={() => setShowCountryModal(true)}
-              >
-                <Text style={styles.countryFlag}>{country.flag}</Text>
-                <Text style={styles.countryName}>{country.name}</Text>
-                <Ionicons name="chevron-down" size={16} color="#94A3B8" />
-              </TouchableOpacity>
-
-              <View style={styles.dobContainer}>
-                <TextInput
-                  style={styles.dobInput}
-                  placeholder="DD"
-                  placeholderTextColor="#64748B"
-                  keyboardType="numeric"
-                  maxLength={2}
-                  value={day}
-                  onChangeText={setDay}
-                />
-                <Text style={styles.dobSlash}>/</Text>
-                <TextInput
-                  style={styles.dobInput}
-                  placeholder="MM"
-                  placeholderTextColor="#64748B"
-                  keyboardType="numeric"
-                  maxLength={2}
-                  value={month}
-                  onChangeText={setMonth}
-                />
-                <Text style={styles.dobSlash}>/</Text>
-                <TextInput
-                  style={[styles.dobInput, { width: 60 }]}
-                  placeholder="YYYY"
-                  placeholderTextColor="#64748B"
-                  keyboardType="numeric"
-                  maxLength={4}
-                  value={year}
-                  onChangeText={setYear}
-                />
-              </View>
-            </View>
-            {STATES_BY_COUNTRY[country.name] ? (
-              <TouchableOpacity 
-                style={[styles.mainInput, { marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-                onPress={() => setShowStateModal(true)}
-              >
-                <Text style={{ color: stateName ? '#F8FAFC' : '#64748B', fontSize: 16 }}>
-                  {stateName || 'Selecciona Provincia / Estado'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color="#94A3B8" />
-              </TouchableOpacity>
-            ) : (
-              <TextInput
-                style={[styles.mainInput, { marginTop: 12 }]}
-                placeholder="Provincia / Estado (Opcional)"
-                placeholderTextColor="#64748B"
-                value={stateName}
-                onChangeText={setStateName}
-              />
-            )}
-
-            <TextInput
-              style={[styles.mainInput, { marginTop: 12 }]}
-              placeholder="Ciudad (Ej: Buenos Aires)"
-              placeholderTextColor="#64748B"
-              value={city}
-              onChangeText={setCity}
             />
           </View>
 

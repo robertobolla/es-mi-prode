@@ -100,8 +100,142 @@ export class UsersService {
     return this.prisma.user.update({ where: { id }, data });
   }
 
-  remove(id: string) {
-    return this.prisma.user.delete({ where: { id } });
+  async remove(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    // 1. Obtener todos los torneos creados por este usuario para eliminarlos en cascada
+    const createdTournaments = await this.prisma.tournament.findMany({
+      where: { creatorId: id },
+      select: { id: true },
+    });
+    const tournamentIds = createdTournaments.map(t => t.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Si el usuario creó torneos, limpiamos todo el contenido de esos torneos primero
+      if (tournamentIds.length > 0) {
+        // Borrar CustomMatchPrediction de los partidos personalizados de estos torneos
+        await tx.customMatchPrediction.deleteMany({
+          where: {
+            customMatch: {
+              phase: {
+                tournamentId: { in: tournamentIds },
+              },
+            },
+          },
+        });
+
+        // Borrar CustomMatch
+        await tx.customMatch.deleteMany({
+          where: {
+            phase: {
+              tournamentId: { in: tournamentIds },
+            },
+          },
+        });
+
+        // Borrar CustomPhase
+        await tx.customPhase.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Borrar CustomTeam
+        await tx.customTeam.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Borrar ChatMessage de los torneos
+        await tx.chatMessage.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Borrar MatchdayWinner de los torneos
+        await tx.matchdayWinner.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Borrar UserBadge de los torneos
+        await tx.userBadge.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Borrar TournamentMember de los torneos
+        await tx.tournamentMember.deleteMany({
+          where: { tournamentId: { in: tournamentIds } },
+        });
+
+        // Finalmente, borrar los torneos creados
+        await tx.tournament.deleteMany({
+          where: { id: { in: tournamentIds } },
+        });
+      }
+
+      // 2. Limpiar las relaciones directas del usuario
+      // MatchPredictions del usuario
+      await tx.matchPrediction.deleteMany({ where: { userId: id } });
+
+      // CustomMatchPredictions directas del usuario
+      await tx.customMatchPrediction.deleteMany({ where: { userId: id } });
+
+      // GroupPredictions del usuario
+      await tx.groupPrediction.deleteMany({ where: { userId: id } });
+
+      // OutrightPredictions del usuario
+      await tx.outrightPrediction.deleteMany({ where: { userId: id } });
+
+      // Badges del usuario
+      await tx.userBadge.deleteMany({ where: { userId: id } });
+
+      // MatchdayWinner del usuario
+      await tx.matchdayWinner.deleteMany({ where: { userId: id } });
+
+      // ChatMessage del usuario
+      await tx.chatMessage.deleteMany({ where: { userId: id } });
+
+      // TournamentMember (membresías del usuario en otros torneos)
+      await tx.tournamentMember.deleteMany({ where: { userId: id } });
+
+      // Reportes enviados o recibidos
+      await tx.userReport.deleteMany({
+        where: {
+          OR: [
+            { reporterId: id },
+            { reportedId: id }
+          ]
+        }
+      });
+
+      // 3. Borrar el usuario de la tabla User de PostgreSQL
+      await tx.user.delete({ where: { id } });
+    });
+
+    // 4. Borrar el usuario de Supabase Auth usando el Admin API de Supabase (service role key)
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (supabaseUrl && supabaseServiceRoleKey) {
+      try {
+        const { createClient } = require('@supabase/supabase-js');
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        });
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(user.supabaseId);
+        if (error) {
+          console.error('❌ [UsersService.remove] Error borrando usuario de Supabase Auth:', error.message);
+        } else {
+          console.log(`✅ [UsersService.remove] Usuario ${user.email} eliminado con éxito de Supabase Auth.`);
+        }
+      } catch (e: any) {
+        console.error('❌ [UsersService.remove] Excepción borrando usuario de Supabase Auth:', e.message);
+      }
+    } else {
+      console.warn('⚠️ [UsersService.remove] SUPABASE_SERVICE_ROLE_KEY no configurada. Saltando borrado en Supabase Auth.');
+    }
+
+    return { success: true };
   }
 
   async ensureUserJoinedPublicTournament(userId: string): Promise<void> {

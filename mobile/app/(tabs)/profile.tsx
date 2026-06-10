@@ -281,9 +281,9 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: EditProfileMod
           setYear(date.getFullYear().toString());
         }
       } else {
-        setDay('01');
-        setMonth('01');
-        setYear('2000');
+        setDay('');
+        setMonth('');
+        setYear('');
       }
     }
   }, [profile, visible]);
@@ -336,41 +336,45 @@ function EditProfileModal({ visible, profile, onClose, onSaved }: EditProfileMod
   };
 
   const handleSave = async () => {
-    const dVal = parseInt(day, 10);
-    const mVal = parseInt(month, 10);
-    const yVal = parseInt(year, 10);
+    let dobString: string | null = null;
 
-    if (isNaN(dVal) || isNaN(mVal) || isNaN(yVal)) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
-      return;
-    }
+    if (day.trim() || month.trim() || year.trim()) {
+      const dVal = parseInt(day, 10);
+      const mVal = parseInt(month, 10);
+      const yVal = parseInt(year, 10);
 
-    if (dVal < 1 || dVal > 31 || mVal < 1 || mVal > 12 || yVal < 1900 || yVal > new Date().getFullYear()) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
-      return;
-    }
+      if (isNaN(dVal) || isNaN(mVal) || isNaN(yVal)) {
+        Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida o dejala vacía.');
+        return;
+      }
 
-    const paddedDay = day.trim().padStart(2, '0');
-    const paddedMonth = month.trim().padStart(2, '0');
-    const paddedYear = year.trim();
-    const dobString = `${paddedYear}-${paddedMonth}-${paddedDay}`;
-    const parsedDate = new Date(dobString);
+      if (dVal < 1 || dVal > 31 || mVal < 1 || mVal > 12 || yVal < 1900 || yVal > new Date().getFullYear()) {
+        Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
+        return;
+      }
 
-    if (isNaN(parsedDate.getTime())) {
-      Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
-      return;
+      const paddedDay = day.trim().padStart(2, '0');
+      const paddedMonth = month.trim().padStart(2, '0');
+      const paddedYear = year.trim();
+      dobString = `${paddedYear}-${paddedMonth}-${paddedDay}`;
+      const parsedDate = new Date(dobString);
+
+      if (isNaN(parsedDate.getTime())) {
+        Alert.alert('Error', 'Por favor ingresá una fecha de nacimiento válida.');
+        return;
+      }
     }
 
     setSaving(true);
     try {
       await api.patch('/users/me', {
         fullName,
-        country,
-        city,
-        state: stateName,
+        country: country || null,
+        city: city || null,
+        state: stateName || null,
         bio,
         avatarUrl,
-        gender,
+        gender: gender || null,
         dob: dobString,
       });
       Alert.alert('¡Listo!', 'Tu perfil fue actualizado');
@@ -648,6 +652,7 @@ interface SettingsModalProps {
 }
 
 function SettingsModal({ visible, profile, onClose, onSaved }: SettingsModalProps) {
+  const queryClient = useQueryClient();
   const [notifyMatches, setNotifyMatches] = useState(true);
   const [notifyRanking, setNotifyRanking] = useState(true);
   const [notifyTournaments, setNotifyTournaments] = useState(true);
@@ -659,6 +664,51 @@ function SettingsModal({ visible, profile, onClose, onSaved }: SettingsModalProp
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Eliminar Cuenta',
+      '¿Estás completamente seguro de que deseas eliminar tu cuenta? Esta acción es irreversible y borrará todos tus datos, torneos y predicciones.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar permanentemente',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Confirmar Eliminación',
+              'Esta es la última advertencia. Se borrará toda tu información de forma permanente. ¿Deseas continuar?',
+              [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                  text: 'Sí, eliminar',
+                  style: 'destructive',
+                  onPress: executeDeleteAccount,
+                }
+              ]
+            );
+          }
+        }
+      ]
+    );
+  };
+
+  const executeDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await api.delete('/users/me');
+      Alert.alert('Cuenta Eliminada', 'Tu cuenta ha sido eliminada correctamente.');
+      onClose();
+      await supabase.auth.signOut();
+      queryClient.clear();
+      router.replace('/(auth)/login');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo eliminar la cuenta. Intenta de nuevo.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (profile) {
@@ -874,8 +924,27 @@ function SettingsModal({ visible, profile, onClose, onSaved }: SettingsModalProp
               </View>
             )}
 
+            {/* Danger Zone */}
+            <Text style={[settingsStyles.sectionTitle, { marginTop: 24, color: '#EF4444' }]}>Zona de Peligro</Text>
+            <View style={settingsStyles.dangerZone}>
+              <Text style={settingsStyles.dangerZoneText}>
+                Si eliminás tu cuenta, se borrarán todos tus datos personales, predicciones e historial de forma definitiva.
+              </Text>
+              <TouchableOpacity
+                style={[settingsStyles.deleteBtn, deleting && { opacity: 0.6 }]}
+                onPress={handleDeleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#F8FAFC" />
+                ) : (
+                  <Text style={settingsStyles.deleteBtnText}>ELIMINAR MI CUENTA PERMANENTEMENTE</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity
-              style={[settingsStyles.saveBtn, saving && { opacity: 0.6 }]}
+              style={[settingsStyles.saveBtn, saving && { opacity: 0.6 }, { marginTop: 32 }]}
               onPress={handleSave}
               disabled={saving}
             >
@@ -1439,6 +1508,32 @@ const settingsStyles = StyleSheet.create({
     color: '#422006',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  dangerZone: {
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+    gap: 12,
+  },
+  dangerZoneText: {
+    color: '#FDA4AF',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  deleteBtn: {
+    backgroundColor: '#EF4444',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  deleteBtnText: {
+    color: '#F8FAFC',
+    fontWeight: 'bold',
+    fontSize: 13,
+    letterSpacing: 0.5,
   },
 });
 

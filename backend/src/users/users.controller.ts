@@ -42,8 +42,8 @@ export class UsersController {
       throw new NotFoundException('Profile not found. Needs onboarding.');
     }
 
-    // Determine if the user completed onboarding (must have country and dob)
-    const isOnboarded = !!(user.country && user.dob);
+    // Determine if the user completed onboarding (must have a valid username)
+    const isOnboarded = !!(user.username && user.username.length >= 3);
 
     if (isOnboarded) {
       await this.usersService.ensureUserJoinedPublicTournament(user.id);
@@ -71,17 +71,12 @@ export class UsersController {
       throw new ConflictException('Username must be at least 3 characters long');
     }
 
-    if (!country || country.trim().length === 0) {
-      throw new ConflictException('El país es requerido');
-    }
-
-    if (!dob) {
-      throw new ConflictException('La fecha de nacimiento es requerida');
-    }
-
-    const parsedDob = new Date(dob);
-    if (isNaN(parsedDob.getTime())) {
-      throw new ConflictException('La fecha de nacimiento no es válida');
+    let parsedDob: Date | undefined = undefined;
+    if (dob) {
+      parsedDob = new Date(dob);
+      if (isNaN(parsedDob.getTime())) {
+        throw new ConflictException('La fecha de nacimiento no es válida');
+      }
     }
     
     const existing = await this.usersService.findBySupabaseId(req.user.userId);
@@ -98,11 +93,11 @@ export class UsersController {
       result = await this.usersService.update(existing.id, {
         username: username.trim(),
         fullName: fullName?.trim() || existing.fullName,
-        country: country?.trim(),
-        city: city?.trim(),
-        state: state?.trim(),
-        dob: parsedDob,
-        gender: gender?.trim(),
+        country: country?.trim() || null,
+        city: city?.trim() || null,
+        state: state?.trim() || null,
+        dob: parsedDob || null,
+        gender: gender?.trim() || null,
       });
     } else {
       result = await this.usersService.create({
@@ -110,11 +105,11 @@ export class UsersController {
         username: username.trim(),
         email: req.user.email,
         fullName: fullName?.trim(),
-        country: country?.trim(),
-        city: city?.trim(),
-        state: state?.trim(),
+        country: country?.trim() || undefined,
+        city: city?.trim() || undefined,
+        state: state?.trim() || undefined,
         dob: parsedDob,
-        gender: gender?.trim(),
+        gender: gender?.trim() || undefined,
       });
     }
 
@@ -122,6 +117,17 @@ export class UsersController {
     await this.usersService.ensureUserJoinedPublicTournament(result.id);
 
     return result;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  async deleteAccount(@Request() req: AuthenticatedRequest) {
+    const user = await this.usersService.findBySupabaseId(req.user.userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    await this.usersService.remove(user.id);
+    return { success: true };
   }
 
   @UseGuards(JwtAuthGuard)

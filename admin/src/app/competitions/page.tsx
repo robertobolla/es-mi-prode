@@ -125,7 +125,7 @@ function CompetitionsPageInner() {
             <h2 className="text-xl font-bold mb-4">Crear Competencia Oficial</h2>
             <input
               className="w-full border border-slate-300 rounded-lg px-4 py-3 text-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Ej: Mundial FIFA 2026"
+              placeholder="Ej: Mundial 2026"
               value={newName}
               onChange={e => setNewName(e.target.value)}
               autoFocus

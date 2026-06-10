@@ -198,13 +198,14 @@ export class CronService {
   async sendWorldCupEveReminder() {
     this.logger.debug('Checking if tomorrow is the start of the competition to send reminders...');
     
-    // Find active competition specifically named Mundial FIFA2026 or Mundial FIFA 2026
+    // Find active competition specifically named Mundial FIFA2026, Mundial FIFA 2026 or Mundial 2026
     const activeCompetition = await this.prisma.competition.findFirst({
       where: {
         active: true,
         OR: [
           { name: 'Mundial FIFA2026' },
-          { name: 'Mundial FIFA 2026' }
+          { name: 'Mundial FIFA 2026' },
+          { name: 'Mundial 2026' }
         ]
       },
     });

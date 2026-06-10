@@ -130,7 +130,7 @@ export default function GlobalRankingScreen() {
       <View style={styles.infoBox}>
         <Ionicons name="information-circle-outline" size={20} color="#EAB308" style={styles.infoIcon} />
         <Text style={styles.infoText}>
-          Este ranking refleja las posiciones del torneo público oficial del <Text style={styles.boldText}>Mundial FIFA 2026</Text>, al cual te unís automáticamente al completar tu perfil.
+          Este ranking refleja las posiciones del torneo público oficial del <Text style={styles.boldText}>Mundial 2026</Text>, al cual te unís automáticamente al completar tu perfil.
         </Text>
       </View>
 
