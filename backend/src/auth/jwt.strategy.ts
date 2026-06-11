@@ -1,6 +1,6 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -38,8 +38,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     
     // 3. Si aún no existe, el usuario fue eliminado o nunca completó el registro
     if (!user) {
-      console.warn(`[JwtStrategy] Usuario con sub=${payload.sub} (${payload.email}) no encontrado en DB. Rechazando.`);
-      throw new UnauthorizedException('User not registered');
+      console.warn(`[JwtStrategy] Usuario con sub=${payload.sub} (${payload.email}) no encontrado en DB. Devolviendo 404.`);
+      throw new NotFoundException('User not found');
     }
     
     return { ...user, userId: payload.sub };

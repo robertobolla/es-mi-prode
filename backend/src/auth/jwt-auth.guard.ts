@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { createClient } from '@supabase/supabase-js';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -55,10 +55,12 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     if (!user) {
-      // El usuario no existe en nuestra DB: token de Supabase válido pero sin cuenta registrada
-      // (puede haber eliminado su cuenta o nunca completado el registro)
-      console.warn(`[JwtAuthGuard] Usuario con supabaseId ${supabaseId} (${email}) no encontrado en DB. Rechazando.`);
-      throw new UnauthorizedException('User not registered');
+      // El usuario no existe en nuestra DB: puede ser un usuario nuevo (aún no completó el registro)
+      // o uno que eliminó su cuenta pero sigue teniendo sesión activa en Supabase.
+      // Devolvemos 404 para que el frontend lo envíe al onboarding si es nuevo,
+      // o quede bloqueado si fue eliminado de Supabase Auth (en ese caso no puede renovar el token).
+      console.warn(`[JwtAuthGuard] Usuario con supabaseId ${supabaseId} (${email}) no encontrado en DB. Devolviendo 404.`);
+      throw new NotFoundException('User not found');
     }
 
     // Attach full user payload to request — id is the internal DB UUID
