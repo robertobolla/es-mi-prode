@@ -36,32 +36,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
     
-    // 3. Si aún no existe, intentamos el AUTO-REGISTRO DE EMERGENCIA
+    // 3. Si aún no existe, el usuario fue eliminado o nunca completó el registro
     if (!user) {
-      const username = payload.email.split('@')[0] + Math.floor(Math.random() * 1000);
-      try {
-        console.log(`[JwtStrategy] Creando nuevo usuario para ${payload.email}`);
-        user = await this.prisma.user.create({
-          data: {
-            supabaseId: payload.sub,
-            email: payload.email,
-            username: username,
-            fullName: 'Nueva Leyenda',
-            isAdmin: payload.email === 'bblasivan@gmail.com' || payload.email === 'robertobolla9@gmail.com',
-          }
-        });
-      } catch (e: any) {
-        console.error('❌ [JwtStrategy] ERROR CRÍTICO EN AUTO-REGISTRO:', {
-          message: e.message,
-          code: e.code,
-          meta: e.meta,
-          stack: e.stack,
-          payloadSub: payload.sub,
-          payloadEmail: payload.email
-        });
-        // Si falló la creación, devolvemos un objeto que indique el fallo pero no rompa el guard
-        return { id: undefined, userId: payload.sub, email: payload.email, notRegistered: true };
-      }
+      console.warn(`[JwtStrategy] Usuario con sub=${payload.sub} (${payload.email}) no encontrado en DB. Rechazando.`);
+      throw new UnauthorizedException('User not registered');
     }
     
     return { ...user, userId: payload.sub };

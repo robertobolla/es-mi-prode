@@ -55,18 +55,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     if (!user) {
-      // Auto-register
-      const username = email.split('@')[0] + Math.floor(Math.random() * 1000);
-      user = await this.prisma.user.create({
-        data: {
-          supabaseId,
-          email,
-          username,
-          fullName: 'Nueva Leyenda',
-          isAdmin: email === 'bblasivan@gmail.com' || email === 'robertobolla9@gmail.com',
-        },
-      });
-      console.log(`[JwtAuthGuard] Auto-created user ${email} with id ${user.id}`);
+      // El usuario no existe en nuestra DB: token de Supabase válido pero sin cuenta registrada
+      // (puede haber eliminado su cuenta o nunca completado el registro)
+      console.warn(`[JwtAuthGuard] Usuario con supabaseId ${supabaseId} (${email}) no encontrado en DB. Rechazando.`);
+      throw new UnauthorizedException('User not registered');
     }
 
     // Attach full user payload to request — id is the internal DB UUID
