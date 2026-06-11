@@ -18,11 +18,9 @@ export class JwtSupabaseGuard implements CanActivate {
 
     const token = authHeader.split(' ')[1];
 
-    const anonKey = process.env.SUPABASE_ANON_KEY || '';
-    const supabase = createClient(
-      process.env.SUPABASE_URL || '',
-      anonKey,
-    );
+    const anonKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVscHZtamZkbG5sa2hzdm5ucW9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTc3MzksImV4cCI6MjA4OTY5MzczOX0.wiOnoeBH2zwszLkvzr90tD8NaIRIS97FVK7976nfP4w';
+    const supabaseUrl = process.env.SUPABASE_URL || 'https://ulpvmjfdlnlkhsvnnqoe.supabase.co';
+    const supabase = createClient(supabaseUrl, anonKey);
 
     const { data, error } = await supabase.auth.getUser(token);
 
