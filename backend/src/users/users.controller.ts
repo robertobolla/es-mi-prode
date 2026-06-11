@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, NotFoundException, ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtSupabaseGuard } from '../auth/jwt-supabase.guard';
 
 interface AuthenticatedRequest {
   user: {
@@ -16,30 +17,13 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@Request() req: AuthenticatedRequest) {
-    let user = await this.usersService.findBySupabaseId(req.user.userId);
-    
-    // EMERGENCY RECOVERY: If user exists in Supabase session but not in our DB
-    if (!user && req.user.email) {
-      console.log('🔄 [UsersController] Usuario sin perfil. Intentando auto-registro para:', req.user.email);
-      try {
-        const username = req.user.email.split('@')[0] + Math.floor(Math.random() * 1000);
-        await this.usersService.create({
-          supabaseId: req.user.userId,
-          email: req.user.email,
-          username,
-          fullName: 'Nueva Leyenda'
-        });
-        user = await this.usersService.findBySupabaseId(req.user.userId);
-        console.log('✅ [UsersController] Usuario auto-registrado:', user?.id);
-      } catch (e: unknown) {
-        const err = e as Error;
-        console.error('❌ [UsersController] Error en auto-registro:', err.message);
-        // If it still fails, then we really need onboarding
-      }
-    }
+    const user = await this.usersService.findBySupabaseId(req.user.userId);
 
     if (!user) {
-      throw new NotFoundException('Profile not found. Needs onboarding.');
+      // El usuario no existe en nuestra BD (fue borrado o nunca completó el onboarding).
+      // NO auto-registramos: devolvemos 404 para que el cliente haga signOut.
+      console.log('⚠️ [UsersController] Usuario de Supabase sin perfil en BD:', req.user.email);
+      throw new NotFoundException('Profile not found.');
     }
 
     // Determine if the user completed onboarding (must have a valid username)
@@ -55,7 +39,7 @@ export class UsersController {
     };
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtSupabaseGuard)
   @Post('onboard')
   async onboard(
     @Request() req: AuthenticatedRequest, 
